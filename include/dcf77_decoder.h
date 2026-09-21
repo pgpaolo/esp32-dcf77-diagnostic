@@ -2,6 +2,11 @@
 
 #include <Arduino.h>
 
+enum class SignalMode : uint8_t {
+    DCF77,
+    RAW_60KHZ
+};
+
 struct RawPulse {
     uint32_t startUs = 0;
     uint32_t widthUs = 0;
@@ -63,6 +68,10 @@ class DCF77Decoder {
 public:
     DCF77Decoder();
 
+    void reset();
+    void setSignalMode(SignalMode mode);
+    SignalMode signalMode() const { return _mode; }
+
     void processPulse(const RawPulse &pulse);
     const DecoderStats &stats() const { return _stats; }
     const DCFDateTime &decodedTime() const { return _decoded; }
@@ -72,6 +81,7 @@ public:
     uint8_t lastFrameCount() const { return _lastFrameCount; }
 
 private:
+    SignalMode _mode = SignalMode::DCF77;
     DecoderStats _stats;
     DCFDateTime _decoded;
 
