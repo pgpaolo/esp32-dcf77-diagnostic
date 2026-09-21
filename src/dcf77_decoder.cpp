@@ -4,10 +4,31 @@
 #include <string.h>
 
 DCF77Decoder::DCF77Decoder() {
+    reset();
+}
+
+void DCF77Decoder::reset() {
+    _stats = DecoderStats{};
+    _decoded = DCFDateTime{};
+    _frameCount = 0;
+    _lastFrameCount = 0;
+    _qualityPos = _qualityCount = 0;
+    _jitterPos = _jitterCount = 0;
+    _zeroCount = _oneCount = _periodCount = 0;
+    _clockBase = DCFDateTime{};
+    _clockBaseMs = 0;
+    _clockBaseValid = false;
+
     memset(_frame, -1, sizeof(_frame));
     memset(_lastFrame, -1, sizeof(_lastFrame));
     memset(_qualityHistory, 0, sizeof(_qualityHistory));
     memset(_jitterHistory, 0, sizeof(_jitterHistory));
+}
+
+void DCF77Decoder::setSignalMode(SignalMode mode) {
+    if (_mode == mode) return;
+    _mode = mode;
+    reset();
 }
 
 int DCF77Decoder::classifyPulse(uint32_t widthUs) const {
@@ -22,11 +43,38 @@ void DCF77Decoder::processPulse(const RawPulse &pulse) {
     _stats.lastPeriodUs = pulse.periodUs;
     _stats.lastPpsOffsetUs = pulse.ppsOffsetUs;
 
+    // On 60 kHz the receiver can be listening to MSF, WWVB or JJY60.
+    // Their modulation is not DCF77-compatible, so only perform neutral
+    // pulse/timing diagnostics here.
+    if (_mode == SignalMode::RAW_60KHZ) {
+        const bool valid = pulse.widthUs >= RAW60_PULSE_MIN_US &&
+                           pulse.widthUs <= RAW60_PULSE_MAX_US;
+        _stats.lastBit = -1;
+        _stats.lastPulseValid = valid;
+        if (valid) _stats.validPulses++;
+        else {
+            _stats.invalidPulses++;
+            if (pulse.widthUs < 30000) _stats.glitchCount++;
+        }
+
+        bool normalSecond = false;
+        if (pulse.periodUs >= DCF_SECOND_MIN_US && pulse.periodUs <= DCF_SECOND_MAX_US) {
+            normalSecond = true;
+            const int32_t jitter = static_cast<int32_t>(pulse.periodUs) - 1000000;
+            _stats.lastJitterUs = jitter;
+            updateJitter(jitter);
+            _periodCount++;
+            _stats.avgPeriodUs += (static_cast<float>(pulse.periodUs) - _stats.avgPeriodUs) / _periodCount;
+        } else if (pulse.periodUs != 0) {
+            _stats.timingErrors++;
+        }
+
+        updateQuality(pulse, -1, valid, normalSecond);
+        return;
+    }
+
     const bool candidateMinuteGap = pulse.periodUs >= DCF_MINUTE_GAP_MIN_US &&
                                     pulse.periodUs <= DCF_MINUTE_GAP_MAX_US;
-    // Once synchronized, accept a two-second gap as the minute marker only near
-    // the expected end of the frame. A missing pulse in the middle of the minute
-    // must not create a false minute lock.
     const bool minuteGap = candidateMinuteGap &&
                            (!_stats.minuteSynced || _frameCount >= 55);
 
@@ -39,8 +87,6 @@ void DCF77Decoder::processPulse(const RawPulse &pulse) {
         _frameCount = 0;
         memset(_frame, -1, sizeof(_frame));
     } else if (pulse.periodUs > DCF_SECOND_MAX_US && pulse.periodUs != 0) {
-        // Unexpected missing edge inside a minute. Lose frame sync and wait for
-        // the next genuine minute marker before collecting a new 59-bit frame.
         _stats.timingErrors++;
         if (_stats.minuteSynced) {
             _stats.minuteSynced = false;
@@ -111,7 +157,6 @@ void DCF77Decoder::finalizeFrame(uint32_t newMinuteStartUs) {
         if (!(_stats.parityMinute && _stats.parityHour && _stats.parityDate)) {
             _stats.parityErrors++;
         }
-        // Keep an established clock lock for short-term reception disturbances.
         if (_stats.lastValidFrameMs != 0 && (millis() - _stats.lastValidFrameMs) > 180000UL) {
             _stats.clockLocked = false;
         }
@@ -135,7 +180,6 @@ bool DCF77Decoder::decodeFrame(DCFDateTime &out) {
     _stats.parityHour   = evenParity(_frame, 29, 35);
     _stats.parityDate   = evenParity(_frame, 36, 58);
 
-    // Bit 20 is the start-of-time-information marker and must be 1.
     if (_frame[20] != 1 || !_stats.parityMinute || !_stats.parityHour || !_stats.parityDate) {
         return false;
     }
@@ -161,7 +205,6 @@ bool DCF77Decoder::decodeFrame(DCFDateTime &out) {
     out.year = 2000 + weighted(_frame, yrPos, yrW, 8);
     out.second = 0;
 
-    // PTB: Z1/Z2 = 0/1 CET, 1/0 CEST.
     const bool z1 = _frame[17] == 1;
     const bool z2 = _frame[18] == 1;
     if (z1 == z2) return false;
@@ -179,9 +222,12 @@ bool DCF77Decoder::decodeFrame(DCFDateTime &out) {
     return true;
 }
 
-void DCF77Decoder::updateQuality(const RawPulse &pulse, int bit, bool valid, bool timingRecognized) {
+void DCF77Decoder::updateQuality(const RawPulse &pulse, int bit, bool valid, bool normalSecond) {
     float pulseScore = 0.0f;
-    if (valid) {
+
+    if (_mode == SignalMode::RAW_60KHZ) {
+        pulseScore = valid ? 1.0f : 0.0f;
+    } else if (valid) {
         const float ideal = bit == 0 ? 100000.0f : 200000.0f;
         const float err = fabsf(static_cast<float>(pulse.widthUs) - ideal);
         pulseScore = 1.0f - fminf(err / 60000.0f, 1.0f);
@@ -190,13 +236,17 @@ void DCF77Decoder::updateQuality(const RawPulse &pulse, int bit, bool valid, boo
     float periodScore = 0.0f;
     if (pulse.periodUs == 0) {
         periodScore = 0.5f;
-    } else if (timingRecognized) {
-        const float ideal = pulse.periodUs >= DCF_MINUTE_GAP_MIN_US ? 2000000.0f : 1000000.0f;
+    } else if (normalSecond) {
+        float ideal = 1000000.0f;
+        if (_mode == SignalMode::DCF77 && pulse.periodUs >= DCF_MINUTE_GAP_MIN_US) ideal = 2000000.0f;
         const float err = fabsf(static_cast<float>(pulse.periodUs) - ideal);
         periodScore = 1.0f - fminf(err / 180000.0f, 1.0f);
     }
 
-    float score = 0.70f * pulseScore + 0.30f * periodScore;
+    float score = (_mode == SignalMode::RAW_60KHZ)
+                    ? (0.40f * pulseScore + 0.60f * periodScore)
+                    : (0.70f * pulseScore + 0.30f * periodScore);
+
     _qualityHistory[_qualityPos] = score;
     _qualityPos = (_qualityPos + 1) % 60;
     if (_qualityCount < 60) _qualityCount++;
@@ -205,8 +255,10 @@ void DCF77Decoder::updateQuality(const RawPulse &pulse, int bit, bool valid, boo
     for (uint8_t i = 0; i < _qualityCount; ++i) sum += _qualityHistory[i];
     float q = _qualityCount ? (sum / _qualityCount) * 100.0f : 0.0f;
 
-    if (_stats.lastFrameValid) q = fminf(100.0f, q + 5.0f);
-    if (_stats.invalidFrames > 0 && !_stats.lastFrameValid) q = fmaxf(0.0f, q - 8.0f);
+    if (_mode == SignalMode::DCF77) {
+        if (_stats.lastFrameValid) q = fminf(100.0f, q + 5.0f);
+        if (_stats.invalidFrames > 0 && !_stats.lastFrameValid) q = fmaxf(0.0f, q - 8.0f);
+    }
     _stats.quality = static_cast<uint8_t>(lroundf(fmaxf(0.0f, fminf(q, 100.0f))));
 }
 
