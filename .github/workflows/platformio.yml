@@ -1,1 +1,20 @@
-name: PlatformIO build\n\non:\n  push:\n    branches: [ main, develop ]\n  pull_request:\n    branches: [ main ]\n\njobs:\n  build:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        environment:\n          - ttgo-t-display\n          - ttgo-t-display-dual\n\n    steps:\n      - name: Checkout\n        uses: actions/checkout@v4\n\n      - name: Set up Python\n        uses: actions/setup-python@v5\n        with:\n          python-version: "3.x"\n\n      - name: Install PlatformIO\n        run: pip install platformio\n\n      - name: Build ${{ matrix.environment }}\n        run: pio run -e ${{ matrix.environment }}\n
+name: PlatformIO Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Build generic DCF77 profile
+        run: pio run -e ttgo-t-display
+      - name: Build dual 60-77.5 kHz profile
+        run: pio run -e ttgo-t-display-dual
