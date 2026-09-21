@@ -177,4 +177,4 @@ For a serious diagnostic instrument, place the ferrite/front-end 15-30 cm from t
 
 ## License
 
-MIT - Gianpaolo Paglialunga
+MIT - Gianpaolo P
