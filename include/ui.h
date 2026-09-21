@@ -10,7 +10,7 @@ public:
     void begin();
     void nextPage();
     void toggleBacklight();
-    void draw(const DCF77Decoder &decoder, int analogRaw = -1);
+    void draw(const DCF77Decoder &decoder, int analogRaw, const char *bandLabel, bool receiverReady);
 
 private:
     TFT_eSPI _tft;
@@ -18,6 +18,8 @@ private:
     uint8_t _page = 0;
     bool _backlight = true;
     uint32_t _lastDrawMs = 0;
+    const char *_bandLabel = "77.5k DCF";
+    bool _receiverReady = true;
 
     void header(const char *title, const DecoderStats &s);
     void drawOverview(const DCF77Decoder &decoder, int analogRaw);
