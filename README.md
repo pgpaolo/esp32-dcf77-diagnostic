@@ -1,30 +1,38 @@
-# DCF77 Signal Analyzer - TTGO T-Display
+# ESP32 DCF77 Diagnostic
 
-Portable DCF77 receiver/diagnostic instrument for the classic **LILYGO / TTGO T-Display ESP32** with integrated **1.14-inch ST7789 240x135 TFT**.
+Portable long-wave time-signal analyzer for the classic **LILYGO / TTGO T-Display ESP32** with integrated **1.14-inch ST7789 240x135 TFT**.
 
-The goal is not only to show the radio-controlled clock, but to expose reception quality and timing diagnostics in real time.
+The project started as a DCF77 diagnostic receiver and now supports two hardware profiles:
+
+1. **generic single-frequency DCF77 receiver** at 77.5 kHz;
+2. **C-MAX CMMR-6D-7760 dual-frequency receiver** at 60 / 77.5 kHz.
+
+At **77.5 kHz** the firmware performs complete DCF77 decoding. At **60 kHz** it operates as a protocol-neutral timing/signal analyzer so that MSF, WWVB or JJY60 signals are not incorrectly interpreted as DCF77.
 
 ## Main functions
 
 - DCF77 digital pulse decoder (100 ms = 0, 200 ms = 1)
-- automatic minute-marker detection
+- automatic DCF77 minute-marker detection
 - minute/hour/date parity checks (P1/P2/P3)
 - CET / CEST detection
 - DST-change and leap-second announcement bits
 - pulse width and second-period measurement in microseconds
 - instantaneous jitter and 60-s RMS jitter
 - rolling timing quality score
-- average 0-bit / 1-bit pulse duration
+- average DCF77 0-bit / 1-bit pulse duration
 - valid/invalid pulse and frame counters
-- last 59-bit frame visualization
+- last 59-bit DCF77 frame visualization
+- 60-kHz RAW diagnostic mode
+- dual-band 60 / 77.5 kHz switching for C-MAX CMMR-6D-7760
+- receiver settling guard after a band change
 - optional analog envelope input
-- optional GPS PPS input for real DCF77-vs-PPS offset measurement
+- optional GPS PPS input for receiver-vs-PPS offset measurements
 - serial CSV-like diagnostic logging
-- four TFT pages selected with the built-in GPIO35 button
+- four TFT pages selected with the built-in button
 
 ## Hardware target
 
-LILYGO documentation lists the classic T-Display as ESP32 + ST7789V, 240x135 pixels, with:
+Classic LILYGO / TTGO T-Display ESP32:
 
 | Function | GPIO |
 |---|---:|
@@ -37,93 +45,100 @@ LILYGO documentation lists the classic T-Display as ESP32 + ST7789V, 240x135 pix
 | Button 1 | 35 |
 | Button 2 / BOOT | 0 |
 
-Project-specific pins:
+Receiver pins:
 
-| Function | GPIO | Default |
+| Function | GPIO | Notes |
 |---|---:|---|
-| DCF77 digital output | 27 | enabled |
-| Optional analog envelope | 32 | disabled |
-| Optional GPS PPS | 33 | disabled |
+| Receiver DATA | 27 | generic OUT or C-MAX TCO/TCON |
+| C-MAX BAND | 25 | dual build only |
+| C-MAX PON | 26 | dual build only, active low |
+| Optional analog envelope | 32 | disabled by default |
+| Optional GPS PPS | 33 | disabled by default |
 
-All project-specific pins and polarity are in `include/config.h`.
+## Build profiles
 
-## DCF77 receiver connection
-
-Typical three-wire receiver module:
-
-```text
-DCF77 receiver       TTGO T-Display
------------------------------------
-VCC              ->  module-specific supply
-GND              ->  GND
-DATA / OUT        ->  GPIO27
-```
-
-**Do not assume the receiver supply voltage.** Some modules are 3.3 V compatible, others are designed for lower supply voltages. Ensure the DATA level presented to ESP32 never exceeds 3.3 V.
-
-If the output is open collector, the default project enables the ESP32 internal pull-up. For a long cable or a noisy environment, an external 4.7k-10k pull-up to 3.3 V is usually preferable.
-
-## Why GPS PPS is optional
-
-Without an independent time reference, the analyzer can accurately measure:
-
-- 100/200 ms pulse widths
-- one-second periodicity
-- jitter relative to 1.000000 s
-- missing / malformed marks
-- frame integrity
-
-It cannot determine the absolute arrival-time offset of DCF77. Enable `PPS_ENABLED` and feed a GPS 1-PPS output to GPIO33 to display DCF77 edge offset versus PPS.
-
-## Display pages
-
-**Page 1 - Overview**
-
-- decoded local time/date
-- CET / CEST
-- lock status
-- timing quality bar
-- current bit, pulse width and jitter
-
-**Page 2 - Signal / Timing**
-
-- pulse width
-- period
-- instantaneous jitter
-- RMS jitter
-- PPS offset when enabled
-- timing/glitch counters
-
-**Page 3 - Last Minute Frame**
-
-- all 59 DCF77 bits
-- P1/P2/P3 status
-- last decoded timestamp
-- valid/invalid frames
-
-**Page 4 - Statistics**
-
-- average pulse-0 duration
-- average pulse-1 duration
-- average one-second period
-- pulse/frame counters
-- parity errors
-
-Button GPIO35 changes page. Button GPIO0 toggles the TFT backlight.
-
-## Build and upload
-
-Install VS Code + PlatformIO, open this directory, then:
+### Generic 77.5 kHz DCF77 module
 
 ```bash
-pio run
-pio run -t upload
-pio device monitor
+pio run -e ttgo-t-display
+pio run -e ttgo-t-display -t upload
 ```
 
-The project configures TFT_eSPI entirely from `platformio.ini`, so no manual edit inside the library is required.
+### C-MAX CMMR-6D-7760 dual 60 / 77.5 kHz
 
-## Receiver polarity
+```bash
+pio run -e ttgo-t-display-dual
+pio run -e ttgo-t-display-dual -t upload
+```
+
+The two profiles are also compiled automatically by GitHub Actions on pushes and pull requests.
+
+## C-MAX dual-frequency operation
+
+For the EU 60/77.5 kHz C-MAX receiver:
+
+- `BAND = GND` selects **77.5 kHz**
+- `BAND = VDD` selects **60 kHz**
+- `PON` is active-low
+- `TCO` is the positive data output
+- `TCON` is the inverted data output
+- `HLD` controls AGC hold
+
+The dual build uses:
+
+```text
+GPIO25 -> BAND
+GPIO26 -> PON
+GPIO27 <- TCO or TCON
+```
+
+After changing frequency the firmware ignores received pulses for 3.5 seconds so the receiver can settle.
+
+### Controls
+
+```text
+GPIO35 short press   next display page
+GPIO35 long press    toggle 77.5 / 60 kHz
+GPIO0 press          TFT backlight
+
+Serial:
+7                    select 77.5 kHz
+6                    select 60.0 kHz
+b                    toggle frequency
+```
+
+## 77.5 kHz mode
+
+The main screen provides decoded DCF77 time/date plus:
+
+- signal/timing quality
+- bit number/value
+- pulse width
+- period
+- jitter
+- parity
+- frame-lock statistics
+
+## 60 kHz mode
+
+The screen changes to **60.0 kHz RAW SIGNAL MONITOR**.
+
+It intentionally does not assign DCF77 bit values. Instead it measures:
+
+- raw pulse width
+- one-second periodicity
+- instantaneous jitter
+- RMS jitter
+- valid/invalid timing events
+- glitches
+- rolling quality
+- optional PPS offset
+
+This mode is suitable for antenna and front-end diagnostics before adding specific MSF/WWVB/JJY60 protocol decoders.
+
+See [docs/DUAL_FREQUENCY.md](docs/DUAL_FREQUENCY.md).
+
+## DCF77 receiver polarity
 
 Default:
 
@@ -131,32 +146,35 @@ Default:
 constexpr bool DCF77_ACTIVE_LOW = true;
 ```
 
-If the displayed pulse lengths make no sense or the signal appears continuously active, change it to `false`.
+For C-MAX, select either TCO or TCON and set the polarity accordingly. If the pulse widths are implausible or the input seems continuously asserted, use the complementary output or invert this setting.
 
-## Decoder timing
+## GPS PPS
 
-The PTB DCF77 AM time code uses nominal 0.1 s marks for binary 0 and 0.2 s marks for binary 1. The final normal second mark of a minute is omitted, creating the minute boundary used by this analyzer for frame synchronization.
+Without an independent reference, the analyzer can measure pulse timing and one-second stability but cannot determine absolute arrival-time offset.
 
-The acceptance windows in `config.h` are deliberately wider than the nominal values so the instrument can diagnose a marginal receiver instead of immediately discarding everything.
+Enable `PPS_ENABLED` and connect a GPS 1-PPS output to GPIO33 to display receiver-edge offset versus PPS.
 
 ## RF / EMC notes
 
-77.5 kHz reception is sensitive to local interference. Keep the ferrite antenna and analog receiver physically away from:
+77.5 kHz and 60 kHz ferrite reception are sensitive to local interference. Keep the antenna and analog receiver away from:
 
-- ESP32 itself
-- TFT flex/display electronics
+- ESP32 and TFT electronics
 - USB/DC-DC converters
-- switching power supplies
+- switching supplies
+- LED drivers
 - PWM wiring
+- large metal objects
 
-For a serious active receiver, use a separate low-noise LDO for the analog stage, local decoupling, short analog traces and preferably 15-30 cm physical separation between ferrite/front-end and the ESP32/TFT board.
+For a serious diagnostic instrument, place the ferrite/front-end 15-30 cm from the ESP32/TFT board and use a clean analog supply.
 
-## Reference documentation
+## Documentation
 
+- [Wiring](docs/WIRING.md)
+- [DCF77 frame](docs/DCF77_FRAME.md)
+- [Dual-frequency receiver support](docs/DUAL_FREQUENCY.md)
 - PTB DCF77: https://www.ptb.de/cms/en/ptb/fachabteilungen/abt4/fb-44/ag-442/dissemination-of-legal-time/dcf77.html
-- PTB DCF77 time-code technical material: https://www.ptb.de/cms/fileadmin/internet/fachabteilungen/abteilung_4/4.4_zeit_und_frequenz/pdf/2011_PTBMitt_50a_DCF77_engl.pdf
-- LILYGO T-Display documentation: https://github.com/Xinyuan-LilyGO/documentation/blob/master/en/products/t-display-series/t-display/index.md
+- C-MAX CMMR-6 receiver specification: https://science.mainguet.org/tech/dcf77/CMax_CMMR6.pdf
 
-## Next hardware step
+## License
 
-Version 1 expects a demodulated DCF77 receiver output. A later hardware revision can add a dedicated 77.5 kHz active front-end with ferrite resonator, high-Q filtering, AGC/envelope output and a clean digital comparator. That would make the ENV value a real reception-strength/noise diagnostic rather than just a digital timing analyzer.
+MIT - Gianpaolo Paglialunga
