@@ -2,6 +2,7 @@
 #include "driver/gpio.h"
 #include "config.h"
 #include "dcf77_decoder.h"
+#include "receiver_control.h"
 #include "ui.h"
 
 namespace {
@@ -19,12 +20,13 @@ volatile bool havePps = false;
 portMUX_TYPE isrMux = portMUX_INITIALIZER_UNLOCKED;
 
 DCF77Decoder decoder;
+ReceiverControl receiver;
 AnalyzerUI ui;
 
-bool buttonPagePrev = true;
-bool buttonBlPrev = true;
-uint32_t buttonPageChangeMs = 0;
-uint32_t buttonBlChangeMs = 0;
+bool pageButtonDown = false;
+uint32_t pageButtonDownMs = 0;
+bool blButtonPrev = true;
+uint32_t blButtonChangeMs = 0;
 
 inline bool IRAM_ATTR dcfActiveLevel(int level) {
     return DCF77_ACTIVE_LOW ? (level == LOW) : (level == HIGH);
@@ -89,28 +91,86 @@ bool popPulse(RawPulse &out) {
     return available;
 }
 
+void clearPulseCapture() {
+    portENTER_CRITICAL(&isrMux);
+    queueTail = queueHead;
+    pulseStartUs = 0;
+    previousStartUs = 0;
+    periodAtStartUs = 0;
+    insidePulse = false;
+    portEXIT_CRITICAL(&isrMux);
+}
+
+void applyDecoderMode() {
+    decoder.setSignalMode(receiver.band() == ReceiverBand::DCF77_775
+                              ? SignalMode::DCF77
+                              : SignalMode::RAW_60KHZ);
+    clearPulseCapture();
+}
+
+void printBand() {
+    Serial.printf("Receiver band: %s (%.1f kHz), settle=%lu ms\n",
+                  receiver.bandLabel(), receiver.frequencyKHz(),
+                  (unsigned long)receiver.settleRemainingMs());
+}
+
+void toggleBand() {
+    if (!receiver.toggleBand()) {
+        Serial.println("Band switch ignored: generic single-frequency build.");
+        return;
+    }
+    applyDecoderMode();
+    printBand();
+}
+
 void pollButtons() {
     const bool pageNow = digitalRead(PIN_BUTTON_PAGE);
     const bool blNow = digitalRead(PIN_BUTTON_BL);
     const uint32_t now = millis();
 
-    if (pageNow != buttonPagePrev && now - buttonPageChangeMs > 35) {
-        buttonPageChangeMs = now;
-        buttonPagePrev = pageNow;
-        if (!pageNow) ui.nextPage();
+    // GPIO35 button: short press = next page, long press >=1.2s = band toggle.
+    if (!pageNow && !pageButtonDown) {
+        pageButtonDown = true;
+        pageButtonDownMs = now;
+    } else if (pageNow && pageButtonDown) {
+        const uint32_t held = now - pageButtonDownMs;
+        pageButtonDown = false;
+        if (held >= 1200 && receiver.isDual()) toggleBand();
+        else ui.nextPage();
     }
 
-    if (blNow != buttonBlPrev && now - buttonBlChangeMs > 35) {
-        buttonBlChangeMs = now;
-        buttonBlPrev = blNow;
+    if (blNow != blButtonPrev && now - blButtonChangeMs > 35) {
+        blButtonChangeMs = now;
+        blButtonPrev = blNow;
         if (!blNow) ui.toggleBacklight();
+    }
+}
+
+void pollSerialCommands() {
+    while (Serial.available()) {
+        const char c = static_cast<char>(Serial.read());
+        if (c == 'b' || c == 'B') {
+            toggleBand();
+        } else if ((c == '7') && receiver.isDual()) {
+            if (receiver.setBand(ReceiverBand::DCF77_775)) {
+                applyDecoderMode();
+                printBand();
+            }
+        } else if ((c == '6') && receiver.isDual()) {
+            if (receiver.setBand(ReceiverBand::LF_60)) {
+                applyDecoderMode();
+                printBand();
+            }
+        }
     }
 }
 
 void logPulse(const RawPulse &p) {
     if (!SERIAL_PULSE_LOG) return;
     const DecoderStats &s = decoder.stats();
-    Serial.printf("PULSE,bit=%d,width_us=%lu,period_us=%lu,jitter_us=%ld,quality=%u,frame_pos=%u,pps_us=",
+    Serial.printf("PULSE,band=%.1f,mode=%s,bit=%d,width_us=%lu,period_us=%lu,jitter_us=%ld,quality=%u,frame_pos=%u,pps_us=",
+                  receiver.frequencyKHz(),
+                  decoder.signalMode() == SignalMode::DCF77 ? "DCF77" : "RAW60",
                   s.lastBit, (unsigned long)p.widthUs, (unsigned long)p.periodUs,
                   (long)s.lastJitterUs, s.quality, s.frameBitCount);
     if (p.ppsOffsetUs == INT32_MIN) Serial.println("NA");
@@ -122,10 +182,13 @@ void setup() {
     Serial.begin(SERIAL_BAUD);
     delay(150);
     Serial.println();
-    Serial.println("DCF77 Signal Analyzer - TTGO T-Display");
+    Serial.println("DCF77 / 60 kHz Signal Analyzer - TTGO T-Display");
 
     pinMode(PIN_BUTTON_PAGE, INPUT);
     pinMode(PIN_BUTTON_BL, INPUT_PULLUP);
+
+    receiver.begin();
+    applyDecoderMode();
 
     pinMode(PIN_DCF77, DCF77_USE_INTERNAL_PULLUP ? INPUT_PULLUP : INPUT);
     attachInterrupt(digitalPinToInterrupt(PIN_DCF77), onDcfEdge, CHANGE);
@@ -142,23 +205,30 @@ void setup() {
 
     ui.begin();
 
-    Serial.printf("DCF input GPIO%d, active %s\n", PIN_DCF77, DCF77_ACTIVE_LOW ? "LOW" : "HIGH");
+    Serial.printf("RX profile: %s\n", receiver.isDual() ? "C-MAX CMMR-6D-7760 dual 60/77.5" : "generic DCF77");
+    Serial.printf("Data GPIO%d, active %s\n", PIN_DCF77, DCF77_ACTIVE_LOW ? "LOW" : "HIGH");
     Serial.printf("GPS PPS: %s\n", PPS_ENABLED ? "enabled" : "disabled");
-    Serial.println("CSV-like pulse diagnostics enabled on Serial.");
+    if (receiver.isDual()) {
+        Serial.printf("BAND GPIO%d, PON GPIO%d. Commands: 7=77.5k, 6=60k, b=toggle\n",
+                      PIN_RX_BAND, PIN_RX_PON);
+    }
+    printBand();
 }
 
 void loop() {
+    pollSerialCommands();
+    pollButtons();
+
     RawPulse p;
     while (popPulse(p)) {
+        if (!receiver.ready()) continue;
         decoder.processPulse(p);
         logPulse(p);
     }
 
-    pollButtons();
-
     int analogRaw = -1;
     if (DCF77_ANALOG_ENABLED) analogRaw = analogRead(PIN_DCF77_ANALOG);
-    ui.draw(decoder, analogRaw);
+    ui.draw(decoder, analogRaw, receiver.bandLabel(), receiver.ready());
 
     delay(2);
 }
