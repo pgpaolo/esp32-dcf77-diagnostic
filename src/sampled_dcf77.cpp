@@ -34,6 +34,8 @@ bool currentPhaseLocked = false;
 uint8_t phaseStableSeconds = 0;
 uint8_t phaseCandidateBin = 0;
 uint8_t phaseCandidateStable = 0;
+uint8_t phaseMissedSeconds = 0;
+uint32_t lastHandledDroppedWindows = 0;
 
 // 60-position minute phase accumulator. A candidate bin represents the raw
 // tick that would correspond to DCF second 59 (the missing-pulse marker).
@@ -98,99 +100,168 @@ uint16_t windowSignal(const uint8_t combined[200], uint16_t start, uint16_t len)
     return sum;
 }
 
+bool phaseBinActive(const uint8_t combined[200], uint8_t idx) {
+    return combined[idx] > 5;
+}
+
+uint8_t phaseRunStrength(const uint8_t combined[200], uint8_t start) {
+    // Count active 10 ms bins in the first 100 ms after a candidate edge.
+    // The 200-sample buffer lets pulses near the hardware-window boundary
+    // continue naturally into the following window.
+    uint8_t active = 0;
+    for (uint8_t k = 0; k < 10; ++k) {
+        if (combined[static_cast<uint16_t>(start) + k] > 5) ++active;
+    }
+    return active;
+}
+
+uint8_t circularDistance100(uint8_t a, uint8_t b) {
+    int d = abs(static_cast<int>(a) - static_cast<int>(b));
+    if (d > 50) d = 100 - d;
+    return static_cast<uint8_t>(d);
+}
+
+int8_t signedPhaseError100(uint8_t observed, uint8_t predicted) {
+    int d = static_cast<int>(observed) - static_cast<int>(predicted);
+    if (d > 50) d -= 100;
+    if (d < -50) d += 100;
+    return static_cast<int8_t>(d);
+}
+
+bool candidateRisingEdge(const uint8_t combined[200], uint8_t idx, uint8_t &strength) {
+    const uint8_t prev = idx == 0 ? 99 : static_cast<uint8_t>(idx - 1);
+    if (phaseBinActive(combined, prev) || !phaseBinActive(combined, idx)) {
+        strength = 0;
+        return false;
+    }
+
+    strength = phaseRunStrength(combined, idx);
+    return strength >= 6;
+}
+
 void findPhase(const uint8_t combined[200]) {
-    int32_t best = -2147483647;
+    // Background acquisition histogram: a real DCF77 pulse start repeats at
+    // nearly the same modulo-1-second phase, while noise edges are scattered.
+    for (uint8_t i = 0; i < BINS; ++i) {
+        phaseScore[i] = (phaseScore[i] * 31) / 32;
+    }
+
+    for (uint8_t i = 0; i < BINS; ++i) {
+        uint8_t strength = 0;
+        if (!candidateRisingEdge(combined, i, strength)) continue;
+
+        const int32_t weight = static_cast<int32_t>(strength) * 5;
+        phaseScore[i] += weight;
+
+        // Give adjacent 10 ms bins a small share so a marginal edge does not
+        // cause lock/unlock simply because it moved by one sampling bin.
+        const uint8_t prev = i == 0 ? 99 : static_cast<uint8_t>(i - 1);
+        const uint8_t next = i == 99 ? 0 : static_cast<uint8_t>(i + 1);
+        phaseScore[prev] += weight / 4;
+        phaseScore[next] += weight / 4;
+    }
+
+    int32_t best = -1;
+    int32_t second = -1;
     uint8_t bestIndex = 0;
 
-    for (uint8_t candidate = 0; candidate < BINS; ++candidate) {
-        const uint16_t base = candidate;
-        const uint16_t a = windowSignal(combined, base, 10);
-        const uint16_t b = windowSignal(combined, base + 10, 10);
-        const uint16_t n = windowSignal(combined, base + 25, 50);
-
-        const int32_t instant =
-            static_cast<int32_t>(2U * a + b) -
-            static_cast<int32_t>(n / 2U);
-
-        phaseScore[candidate] = (phaseScore[candidate] * 15 + instant * 16) / 16;
-
-        if (phaseScore[candidate] > best) {
-            best = phaseScore[candidate];
-            bestIndex = candidate;
+    for (uint8_t i = 0; i < BINS; ++i) {
+        const int32_t v = phaseScore[i];
+        if (v > best) {
+            second = best;
+            best = v;
+            bestIndex = i;
+        } else if (v > second && circularDistance100(i, bestIndex) > 3) {
+            second = v;
         }
     }
 
-    const uint8_t noiseIndex = static_cast<uint8_t>((bestIndex + 20U) % BINS);
-    const int32_t noise = phaseScore[noiseIndex];
-    const int32_t separation = best > noise ? best - noise : 0;
-
-    int32_t q = separation / 8;
-    if (q > 100) q = 100;
-    currentPhaseQuality = static_cast<uint8_t>(q);
-
-    auto circularDistance = [](uint8_t a, uint8_t b) -> uint8_t {
-        int d = abs(static_cast<int>(a) - static_cast<int>(b));
-        if (d > 50) d = 100 - d;
-        return static_cast<uint8_t>(d);
-    };
+    if (second < 0) second = 0;
+    const int32_t separation = best > second ? best - second : 0;
 
     if (!currentPhaseLocked) {
-        // Require the same phase neighbourhood for several consecutive seconds.
-        if (phaseCandidateStable == 0 || circularDistance(bestIndex, phaseCandidateBin) > 3) {
+        if (phaseCandidateStable == 0 ||
+            circularDistance100(bestIndex, phaseCandidateBin) > 3) {
             phaseCandidateBin = bestIndex;
             phaseCandidateStable = 1;
         } else {
             if (phaseCandidateStable < 255) ++phaseCandidateStable;
-            // Slowly follow only within the same +/-30 ms neighbourhood.
-            phaseCandidateBin = static_cast<uint8_t>((phaseCandidateBin * 3U + bestIndex) / 4U);
         }
 
-        if (separation >= 80 && best >= 120 && currentPhaseQuality >= 20) {
-            if (phaseStableSeconds < 255) ++phaseStableSeconds;
-        } else {
-            phaseStableSeconds = 0;
-        }
+        int32_t q = separation / 2;
+        if (q > 100) q = 100;
+        currentPhaseQuality = static_cast<uint8_t>(q);
+        currentPhaseBin = bestIndex;
 
-        if (phaseStableSeconds >= 4 && phaseCandidateStable >= 4) {
+        // Four coherent seconds are enough for initial lock. The histogram
+        // must also have a clear advantage over competing noise phases.
+        if (best >= 120 && separation >= 25 && phaseCandidateStable >= 4) {
             currentPhaseBin = phaseCandidateBin;
             currentPhaseLocked = true;
-        } else {
-            currentPhaseBin = bestIndex;
+            phaseStableSeconds = 4;
+            phaseMissedSeconds = 0;
+            if (currentPhaseQuality < 50) currentPhaseQuality = 50;
         }
         return;
     }
 
-    // Once locked, do NOT chase a remote peak. Real DCF phase is stable.
-    // Permit only small +/-30 ms corrections.
-    const uint8_t distance = circularDistance(bestIndex, currentPhaseBin);
+    // PLL tracking after lock: inspect only a narrow +/-50 ms aperture around
+    // the predicted DCF pulse start. A remote noise edge can never drag phase.
+    bool found = false;
+    uint8_t observed = currentPhaseBin;
+    uint8_t observedStrength = 0;
+    uint8_t observedDistance = 255;
 
-    if (currentPhaseQuality < 15 || separation < 50 || best < 80) {
-        // A bad phase must become UNLOCKED quickly; never keep a stale LOCK
-        // for hundreds of seconds merely because the historical counter was high.
+    for (int8_t off = -5; off <= 5; ++off) {
+        int p = static_cast<int>(currentPhaseBin) + off;
+        while (p < 0) p += 100;
+        while (p >= 100) p -= 100;
+        const uint8_t idx = static_cast<uint8_t>(p);
+
+        uint8_t strength = 0;
+        if (!candidateRisingEdge(combined, idx, strength)) continue;
+
+        const uint8_t distance = circularDistance100(idx, currentPhaseBin);
+        if (!found || strength > observedStrength ||
+            (strength == observedStrength && distance < observedDistance)) {
+            found = true;
+            observed = idx;
+            observedStrength = strength;
+            observedDistance = distance;
+        }
+    }
+
+    if (found) {
+        phaseMissedSeconds = 0;
+        if (phaseStableSeconds < 255) ++phaseStableSeconds;
+
+        // First-order digital PLL: correct at most one 10 ms bin per second.
+        const int8_t error = signedPhaseError100(observed, currentPhaseBin);
+        if (error > 0) {
+            currentPhaseBin = currentPhaseBin == 99 ? 0 : currentPhaseBin + 1;
+        } else if (error < 0) {
+            currentPhaseBin = currentPhaseBin == 0 ? 99 : currentPhaseBin - 1;
+        }
+
+        int q = static_cast<int>(observedStrength) * 10;
+        if (q > 100) q = 100;
+        currentPhaseQuality = static_cast<uint8_t>(q);
+        return;
+    }
+
+    // One missing pulse is expected every minute (DCF second 59). Keep the
+    // predicted phase through that gap. Only repeated misses force reacquire.
+    if (phaseMissedSeconds < 255) ++phaseMissedSeconds;
+    if (currentPhaseQuality > 15) currentPhaseQuality -= 15;
+    else currentPhaseQuality = 0;
+
+    if (phaseMissedSeconds >= 3) {
         currentPhaseLocked = false;
         phaseStableSeconds = 0;
+        phaseCandidateStable = 0;
         phaseCandidateBin = bestIndex;
-        phaseCandidateStable = 1;
         currentPhaseBin = bestIndex;
-        return;
     }
-
-    if (distance <= 3) {
-        // Gentle one-bin tracking prevents jitter without freezing the clock.
-        if (distance > 0) {
-            int cur = currentPhaseBin;
-            int target = bestIndex;
-            int diff = target - cur;
-            if (diff > 50) diff -= 100;
-            if (diff < -50) diff += 100;
-            if (diff > 0) cur++;
-            else if (diff < 0) cur--;
-            if (cur < 0) cur += 100;
-            if (cur >= 100) cur -= 100;
-            currentPhaseBin = static_cast<uint8_t>(cur);
-        }
-    }
-    // A distant bestIndex is ignored while quality is still acceptable.
 }
 
 uint8_t wrap60(int v) {
@@ -333,15 +404,15 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     // Therefore a minute marker must NOT be detected from the activity of the
     // whole raw buffer. Use only the phase-aligned pulse region below.
     //
-    // Udo-style two-half decision, but allow the MASO apparent edge to move
-    // around the accumulated phase. Search +/-80 ms and keep the alignment
-    // with the strongest first 100 ms half.
+    // Udo-style two-half decision around the PLL prediction. Once phase is
+    // locked, only a narrow +/-30 ms alignment search is allowed so random
+    // bursts elsewhere in the second cannot masquerade as a DCF symbol.
     uint16_t bestStart = currentPhaseBin;
     int bestFirst = -1;
     uint8_t bestFirstCount = 0;
     uint8_t bestSecondCount = 0;
 
-    for (int8_t shift = -8; shift <= 8; ++shift) {
+    for (int8_t shift = -3; shift <= 3; ++shift) {
         int candidate = static_cast<int>(currentPhaseBin) + shift;
         while (candidate < 0) candidate += 100;
         while (candidate >= 100) candidate -= 100;
@@ -481,6 +552,8 @@ void sampledDcfReset() {
     phaseStableSeconds = 0;
     phaseCandidateBin = 0;
     phaseCandidateStable = 0;
+    phaseMissedSeconds = 0;
+    lastHandledDroppedWindows = 0;
     memset(minuteScore, 0, sizeof(minuteScore));
     rawSecondTick = 0;
     minuteBest = 0;
@@ -522,7 +595,10 @@ void sampledDcfPoll() {
     snapshotState.secondsObserved++;
     snapshotState.droppedWindows = drops;
 
-    if (havePreviousWindow) {
+    const uint32_t newDrops = drops - lastHandledDroppedWindows;
+    lastHandledDroppedWindows = drops;
+
+    if (havePreviousWindow && newDrops == 0) {
         uint8_t combined[200];
         memcpy(combined, previousWindow, BINS);
         memcpy(combined + BINS, current, BINS);
@@ -534,10 +610,25 @@ void sampledDcfPoll() {
 
         classifyPreviousSecond(combined);
 
-        // The hardware window represents one real elapsed second regardless
-        // of phase-lock state. Keep the 60-second timebase monotonic even when
-        // bit classification is temporarily unavailable.
+        // One contiguous captured second elapsed.
         rawSecondTick = static_cast<uint8_t>((rawSecondTick + 1U) % 60U);
+    } else if (havePreviousWindow && newDrops > 0) {
+        // previousWindow and current are no longer adjacent. Do not decode a
+        // synthetic 200 ms region across the gap. Advance the minute timebase
+        // for the pending previous second plus every dropped hardware window.
+        pendingMarkerCandidate = false;
+        rawSecondTick = static_cast<uint8_t>(
+            (rawSecondTick + 1U + (newDrops % 60U)) % 60U);
+
+        // Preserve PLL phase prediction: the 1 kHz hardware timer continued
+        // running even though the main loop missed one or more windows.
+        if (phaseMissedSeconds < 255) ++phaseMissedSeconds;
+        snapshotState.phaseBin = currentPhaseBin;
+        snapshotState.phaseQuality = currentPhaseQuality;
+        snapshotState.phaseLocked = currentPhaseLocked;
+        snapshotState.lastBit = -1;
+        snapshotState.lastConfidence = 0;
+        snapshotState.lastPulseMs = 0;
     }
 
     memcpy(previousWindow, current, BINS);
