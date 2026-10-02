@@ -11,18 +11,43 @@
 // Display pins are configured in platformio.ini.
 // -----------------------------------------------------------------------------
 
+#if defined(ESP8266)
+constexpr uint8_t PIN_OLED_SDA = 14;
+constexpr uint8_t PIN_OLED_SCL = 12;
+constexpr uint8_t OLED_ADDRESS = 0x3C;
+constexpr uint32_t OLED_PAGE_MS = 5000;
+constexpr uint8_t PIN_BUTTON_PAGE = 0; // optional BOOT: do not hold at reset
+constexpr uint8_t PIN_BUTTON_BL = 255; // absent
+constexpr uint8_t PIN_DCF77 = 13;
+constexpr uint8_t PIN_RX_BAND = 5; // reserved SEL, not driven
+constexpr uint8_t PIN_RX_PON = 4;  // reserved PON, not driven
+constexpr uint8_t PIN_DCF77_ANALOG = A0;
+constexpr uint8_t PIN_PPS = 16; // PPS disabled: GPIO16 has no edge interrupt
+static_assert(DCF_RX_DUAL_CMAX == 0, "HW364A uses unverified receiver controls; dual CMAX unsupported");
+#else
 constexpr uint8_t PIN_TFT_BACKLIGHT = 4;
 constexpr uint8_t PIN_BUTTON_PAGE   = 35; // hardware pull-up on T-Display
 constexpr uint8_t PIN_BUTTON_BL     = 0;  // BOOT button; avoid holding during reset
 
 // Receiver data output.
 constexpr uint8_t PIN_DCF77 = 27;
+constexpr uint8_t PIN_RX_BAND = 25;
+constexpr uint8_t PIN_RX_PON = 26;
+constexpr uint8_t PIN_DCF77_ANALOG = 32;
+constexpr uint8_t PIN_PPS = 33;
+#endif
 
 // Generic DCF77 modules often use an active-low/open-collector output.
 // C-MAX exposes both TCO (positive) and TCON (inverted), so keep this
 // configurable according to the pin you actually wire to GPIO27.
 constexpr bool DCF77_ACTIVE_LOW = true;
 constexpr bool DCF77_USE_INTERNAL_PULLUP = true;
+
+// MASO-S-R1: enable only after verifying the module's electrical specification.
+constexpr bool MASO_DRIVE_SEL = false;
+constexpr bool MASO_DRIVE_PON = false;
+constexpr uint8_t MASO_SEL_LEVEL = LOW;
+constexpr uint8_t MASO_PON_LEVEL = LOW;
 
 // -----------------------------------------------------------------------------
 // Optional C-MAX CMMR-6D-7760 dual-frequency receiver (60 / 77.5 kHz)
@@ -39,17 +64,20 @@ constexpr bool DCF77_USE_INTERNAL_PULLUP = true;
 // HLD is intentionally not MCU-controlled in v1: tie HLD to VDD externally.
 // -----------------------------------------------------------------------------
 constexpr bool DUAL_FREQUENCY_RECEIVER = (DCF_RX_DUAL_CMAX != 0);
-constexpr uint8_t PIN_RX_BAND = 25;
-constexpr uint8_t PIN_RX_PON  = 26;
+
+
 constexpr uint32_t RX_SETTLE_MS = 3500;
 
 // Optional analog envelope / RSSI-like output from a custom active receiver.
 constexpr bool DCF77_ANALOG_ENABLED = false;
-constexpr uint8_t PIN_DCF77_ANALOG = 32;
+
 
 // Optional precision reference from a GPS PPS receiver.
 constexpr bool PPS_ENABLED = false;
-constexpr uint8_t PIN_PPS = 33;
+#if defined(ESP8266)
+static_assert(!PPS_ENABLED, "Assign an interrupt-capable unused GPIO before enabling PPS on HW364A");
+#endif
+
 constexpr bool PPS_RISING_EDGE = true;
 
 // DCF77 decoder timing windows.

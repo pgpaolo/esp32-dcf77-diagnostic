@@ -1,5 +1,16 @@
 # ESP32 DCF77 Diagnostic
 
+## HW-364A ESP8266 con OLED e portale locale
+
+È disponibile il profilo `hw364a`, con OLED SSD1306 128x64, tre pagine automatiche
+e portale Wi-Fi di diagnostica. Compilazione: `pio run -e hw364a`.
+Collegarsi alla rete `DCF77-HW364A-xxxxxx`, password iniziale `dcf77oled`,
+e aprire http://192.168.4.1 .
+
+Vedere [istruzioni HW364A](docs/HW364A.md) prima di collegare il ricevitore MASO-S-R1:
+VDD, SEL, PON e tipo di uscita devono essere verificati; SEL/PON non vengono pilotati per default.
+I profili ESP32 descritti sotto conservano display TFT e comandi originali.
+
 Portable long-wave time-signal analyzer for the classic **LILYGO / TTGO T-Display ESP32** with integrated **1.14-inch ST7789 240x135 TFT**.
 
 The project started as a DCF77 diagnostic receiver and now supports two hardware profiles:

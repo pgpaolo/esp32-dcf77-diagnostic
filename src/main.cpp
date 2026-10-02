@@ -1,5 +1,8 @@
 #include <Arduino.h>
+#if defined(ESP32)
 #include "driver/gpio.h"
+#endif
+#include "web_portal.h"
 #include "config.h"
 #include "dcf77_decoder.h"
 #include "receiver_control.h"
@@ -17,7 +20,9 @@ volatile bool insidePulse = false;
 volatile uint32_t latestPpsUs = 0;
 volatile bool havePps = false;
 
+#if defined(ESP32)
 portMUX_TYPE isrMux = portMUX_INITIALIZER_UNLOCKED;
+#endif
 
 DCF77Decoder decoder;
 ReceiverControl receiver;
@@ -46,7 +51,11 @@ void IRAM_ATTR onPpsEdge() {
 
 void IRAM_ATTR onDcfEdge() {
     const uint32_t now = micros();
+    #if defined(ESP32)
     const int level = gpio_get_level(static_cast<gpio_num_t>(PIN_DCF77));
+#else
+    const int level = digitalRead(PIN_DCF77);
+#endif
     const bool active = dcfActiveLevel(level);
 
     if (active && !insidePulse) {
@@ -78,7 +87,11 @@ void IRAM_ATTR onDcfEdge() {
 
 bool popPulse(RawPulse &out) {
     bool available = false;
+#if defined(ESP32)
     portENTER_CRITICAL(&isrMux);
+#else
+    noInterrupts();
+#endif
     if (queueTail != queueHead) {
         out.startUs = pulseQueue[queueTail].startUs;
         out.widthUs = pulseQueue[queueTail].widthUs;
@@ -87,18 +100,30 @@ bool popPulse(RawPulse &out) {
         queueTail = (queueTail + 1) % PULSE_QUEUE_SIZE;
         available = true;
     }
+#if defined(ESP32)
     portEXIT_CRITICAL(&isrMux);
+#else
+    interrupts();
+#endif
     return available;
 }
 
 void clearPulseCapture() {
+#if defined(ESP32)
     portENTER_CRITICAL(&isrMux);
+#else
+    noInterrupts();
+#endif
     queueTail = queueHead;
     pulseStartUs = 0;
     previousStartUs = 0;
     periodAtStartUs = 0;
     insidePulse = false;
+#if defined(ESP32)
     portEXIT_CRITICAL(&isrMux);
+#else
+    interrupts();
+#endif
 }
 
 void applyDecoderMode() {
@@ -125,7 +150,7 @@ void toggleBand() {
 
 void pollButtons() {
     const bool pageNow = digitalRead(PIN_BUTTON_PAGE);
-    const bool blNow = digitalRead(PIN_BUTTON_BL);
+    const bool blNow = PIN_BUTTON_BL == 255 ? true : digitalRead(PIN_BUTTON_BL);
     const uint32_t now = millis();
 
     // GPIO35 button: short press = next page, long press >=1.2s = band toggle.
@@ -182,10 +207,20 @@ void setup() {
     Serial.begin(SERIAL_BAUD);
     delay(150);
     Serial.println();
+#if defined(ESP8266)
+    Serial.println("DCF77 Signal Analyzer - HW364A OLED + WiFi");
+#else
     Serial.println("DCF77 / 60 kHz Signal Analyzer - TTGO T-Display");
+#endif
 
-    pinMode(PIN_BUTTON_PAGE, INPUT);
-    pinMode(PIN_BUTTON_BL, INPUT_PULLUP);
+    pinMode(PIN_BUTTON_PAGE,
+#if defined(ESP8266)
+            INPUT_PULLUP
+#else
+            INPUT
+#endif
+    );
+    if (PIN_BUTTON_BL != 255) pinMode(PIN_BUTTON_BL, INPUT_PULLUP);
 
     receiver.begin();
     applyDecoderMode();
@@ -199,11 +234,14 @@ void setup() {
     }
 
     if (DCF77_ANALOG_ENABLED) {
+#if defined(ESP32)
         analogReadResolution(12);
+#endif
         pinMode(PIN_DCF77_ANALOG, INPUT);
     }
 
     ui.begin();
+    portalBegin();
 
     Serial.printf("RX profile: %s\n", receiver.isDual() ? "C-MAX CMMR-6D-7760 dual 60/77.5" : "generic DCF77");
     Serial.printf("Data GPIO%d, active %s\n", PIN_DCF77, DCF77_ACTIVE_LOW ? "LOW" : "HIGH");
@@ -230,5 +268,6 @@ void loop() {
     if (DCF77_ANALOG_ENABLED) analogRaw = analogRead(PIN_DCF77_ANALOG);
     ui.draw(decoder, analogRaw, receiver.bandLabel(), receiver.ready());
 
+    portalPoll(decoder, receiver);
     delay(2);
 }

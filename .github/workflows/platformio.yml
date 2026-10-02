@@ -18,3 +18,5 @@ jobs:
         run: pio run -e ttgo-t-display
       - name: Build dual 60-77.5 kHz profile
         run: pio run -e ttgo-t-display-dual
+      - name: Build HW364A OLED profile
+        run: pio run -e hw364a

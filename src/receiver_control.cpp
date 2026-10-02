@@ -3,6 +3,17 @@
 void ReceiverControl::begin() {
     _band = ReceiverBand::DCF77_775;
 
+#if defined(ESP8266)
+    if (MASO_DRIVE_SEL) {
+        digitalWrite(PIN_RX_BAND, MASO_SEL_LEVEL);
+        pinMode(PIN_RX_BAND, OUTPUT);
+    }
+    if (MASO_DRIVE_PON) {
+        digitalWrite(PIN_RX_PON, MASO_PON_LEVEL);
+        pinMode(PIN_RX_PON, OUTPUT);
+    }
+#endif
+
     if (DUAL_FREQUENCY_RECEIVER) {
         pinMode(PIN_RX_BAND, OUTPUT);
         pinMode(PIN_RX_PON, OUTPUT);

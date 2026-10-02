@@ -1,7 +1,11 @@
 #pragma once
 
 #include <Arduino.h>
+#if defined(ESP8266)
+#include <Adafruit_SSD1306.h>
+#else
 #include <TFT_eSPI.h>
+#endif
 #include "dcf77_decoder.h"
 
 class AnalyzerUI {
@@ -13,8 +17,14 @@ public:
     void draw(const DCF77Decoder &decoder, int analogRaw, const char *bandLabel, bool receiverReady);
 
 private:
+#if defined(ESP8266)
+    Adafruit_SSD1306 _oled;
+    bool _available = false;
+    uint32_t _lastPageMs = 0;
+#else
     TFT_eSPI _tft;
     TFT_eSprite _spr;
+#endif
     uint8_t _page = 0;
     bool _backlight = true;
     uint32_t _lastDrawMs = 0;

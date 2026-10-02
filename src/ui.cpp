@@ -1,3 +1,4 @@
+#if !defined(ESP8266)
 #include "ui.h"
 #include "config.h"
 #include <math.h>
@@ -259,3 +260,5 @@ const char *AnalyzerUI::weekdayName(int weekday) {
     if (weekday < 1 || weekday > 7) return "?";
     return names[weekday];
 }
+
+#endif
