@@ -111,10 +111,12 @@ void findPhase(const uint8_t combined[200]) {
 
     if (currentPhaseQuality >= 8) {
         if (phaseStableSeconds < 255) phaseStableSeconds++;
+    } else if (currentPhaseQuality < 5) {
+        phaseStableSeconds = 0;
     } else {
-        if (phaseStableSeconds > 0) phaseStableSeconds--;
+        phaseStableSeconds = phaseStableSeconds > 1 ? phaseStableSeconds - 2 : 0;
     }
-    currentPhaseLocked = phaseStableSeconds >= 4;
+    currentPhaseLocked = phaseStableSeconds >= 5;
 }
 
 uint8_t wrap60(int v) {
@@ -137,11 +139,11 @@ void updateMinutePhase(const SampledDcfEvent &e) {
         if (minuteScore[i] > 0) minuteScore[i]--;
     }
 
-    if (e.minuteMarker) {
-        // Current raw tick should be DCF second 59.
-        satAdd(minuteScore[rawSecondTick], 18);
-        satSub(minuteScore[wrap60(rawSecondTick - 1)], 4);
-        satSub(minuteScore[wrap60(rawSecondTick + 1)], 4);
+    if (e.markerCandidate) {
+        // A quiet 220 ms window is only evidence for second 59, never proof.
+        satAdd(minuteScore[rawSecondTick], 10);
+        satSub(minuteScore[wrap60(rawSecondTick - 1)], 3);
+        satSub(minuteScore[wrap60(rawSecondTick + 1)], 3);
     } else if (e.bit == 0) {
         // If this is DCF second 0, marker candidate is one raw tick behind.
         satAdd(minuteScore[wrap60(rawSecondTick - 1)], 3);
@@ -170,12 +172,14 @@ void updateMinutePhase(const SampledDcfEvent &e) {
     minuteQuality = best > second ? static_cast<uint8_t>(best - second) : 0;
 
     // Lock only after repeated separation from competing positions.
-    if (minuteQuality >= 10 && best >= 18) {
+    if (minuteQuality >= 10 && best >= 24) {
         if (minuteStable < 255) minuteStable++;
+    } else if (minuteQuality < 5) {
+        minuteStable = 0;
     } else if (minuteStable > 0) {
         minuteStable--;
     }
-    minutePhaseLocked = minuteStable >= 4;
+    minutePhaseLocked = minuteStable >= 6;
 }
 
 uint8_t decodedSecondForRawTick(uint8_t rawTick) {
@@ -191,7 +195,18 @@ void pushEvent(const SampledDcfEvent &e) {
 }
 
 void classifyPreviousSecond(const uint8_t combined[200]) {
-    if (!currentPhaseLocked) return;
+    if (!currentPhaseLocked) {
+        snapshotState.lastBit = -1;
+        snapshotState.lastMinuteMarker = false;
+        snapshotState.lastConfidence = 0;
+        snapshotState.lastPulseMs = 0;
+        snapshotState.secondLocked = minutePhaseLocked;
+        snapshotState.secondQuality = minuteQuality;
+        snapshotState.secondIndex = minutePhaseLocked
+            ? decodedSecondForRawTick(rawSecondTick)
+            : 255;
+        return;
+    }
 
     const uint16_t p = currentPhaseBin;
     const uint16_t first110 = windowSignal(combined, p, 11);
@@ -206,49 +221,50 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     syntheticStartUs += 1000000UL;
 
     if (!firstActive && !secondActive) {
-        e.minuteMarker = true;
+        // Do not call this MIN yet. It is only a candidate for second 59.
+        e.markerCandidate = true;
+        e.minuteMarker = false;
         e.bit = -1;
         e.pulseMs = 0;
-        e.confidence = noise < 120 ? 90 : 60;
-        previousWasMarker = true;
-        pushEvent(e);
+        e.confidence = noise < 80 ? 80 : (noise < 150 ? 55 : 30);
     } else {
+        e.markerCandidate = false;
         e.minuteMarker = false;
         e.bit = firstActive ? (secondActive ? 1 : 0) : -1;
         e.pulseMs = e.bit == 0 ? 100 : (e.bit == 1 ? 200 : 0);
 
-        uint16_t signalStrength = first110 + second110;
-        uint16_t penalty = noise / 5U;
+        const uint16_t signalStrength = first110 + second110;
+        const uint16_t penalty = noise / 4U;
         int conf = static_cast<int>(signalStrength / 2U) - static_cast<int>(penalty);
         if (e.bit < 0) conf /= 2;
         if (conf < 0) conf = 0;
         if (conf > 100) conf = 100;
         e.confidence = static_cast<uint8_t>(conf);
-
-        pushEvent(e);
-        previousWasMarker = false;
     }
 
     updateMinutePhase(e);
 
-    SampledDcfEvent tagged = e;
-    tagged.secondLocked = minutePhaseLocked;
-    tagged.secondQuality = minuteQuality;
-    tagged.secondIndex = minutePhaseLocked ? decodedSecondForRawTick(rawSecondTick) : 255;
+    e.secondLocked = minutePhaseLocked;
+    e.secondQuality = minuteQuality;
+    e.secondIndex = minutePhaseLocked ? decodedSecondForRawTick(rawSecondTick) : 255;
 
-    // Replace the just-enqueued untagged event with a tagged copy.
-    if (eventHead != eventTail) {
-        const uint8_t last = eventHead == 0 ? EVENT_QUEUE_SIZE - 1 : eventHead - 1;
-        eventQueue[last] = tagged;
+    // Only a locked second-59 position becomes a real minute marker.
+    if (e.secondLocked && e.secondIndex == 59) {
+        e.minuteMarker = true;
+        e.bit = -1;
+        e.pulseMs = 0;
+        if (e.confidence < 70) e.confidence = 70;
     }
+
+    pushEvent(e);
 
     snapshotState.lastBit = e.bit;
     snapshotState.lastMinuteMarker = e.minuteMarker;
     snapshotState.lastConfidence = e.confidence;
     snapshotState.lastPulseMs = e.pulseMs;
-    snapshotState.secondLocked = minutePhaseLocked;
-    snapshotState.secondQuality = minuteQuality;
-    snapshotState.secondIndex = tagged.secondIndex;
+    snapshotState.secondLocked = e.secondLocked;
+    snapshotState.secondQuality = e.secondQuality;
+    snapshotState.secondIndex = e.secondIndex;
 
     rawSecondTick = static_cast<uint8_t>((rawSecondTick + 1U) % 60U);
 }
