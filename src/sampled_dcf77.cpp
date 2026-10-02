@@ -45,6 +45,13 @@ bool minutePhaseLocked = false;
 uint8_t minuteStable = 0;
 uint32_t syncCandidateCount = 0;
 
+// A quiet second is only a provisional marker. DCF77 second 59 is followed
+// by second 0, whose bit is fixed to 0. Confirm the marker only when the next
+// decoded symbol is a reasonably confident zero.
+bool pendingMarkerCandidate = false;
+uint8_t pendingMarkerRawTick = 0;
+uint8_t pendingMarkerConfidence = 0;
+
 SampledDcfSnapshot snapshotState;
 
 SampledDcfEvent eventQueue[EVENT_QUEUE_SIZE];
@@ -148,34 +155,29 @@ void satSub(uint8_t &v, uint8_t n) {
     v = (v < n) ? 0 : static_cast<uint8_t>(v - n);
 }
 
-void updateMinutePhase(const SampledDcfEvent &e) {
-    // Udo Klein style sync-mark binning.
-    // Scores are persistent and saturating: evidence is accumulated over
-    // minutes instead of globally decaying every second.
-    const uint8_t current = rawSecondTick;
+void applyMinuteScore(uint8_t tick, int8_t bit, bool confirmedSync) {
+    // Udo Klein style sync-mark binning, but a sync mark reaches this
+    // function only after confirmation by the following fixed zero bit.
+    const uint8_t current = tick;
     const uint8_t previous = wrap60(static_cast<int>(current) - 1);
     const uint8_t previous21 = wrap60(static_cast<int>(current) - 21);
     const uint8_t next = wrap60(static_cast<int>(current) + 1);
 
-    if (e.markerCandidate) {
+    if (confirmedSync) {
         syncCandidateCount++;
-        // sync mark: +6 current, -2 previous, -2 next, -2 current-21
         satAdd(minuteScore[current], 6);
         satSub(minuteScore[previous], 2);
         satSub(minuteScore[next], 2);
         satSub(minuteScore[previous21], 2);
-    } else if (e.bit == 0) {
-        // short tick: +1 previous, -2 current, -2 current-21
+    } else if (bit == 0) {
         satAdd(minuteScore[previous], 1);
         satSub(minuteScore[current], 2);
         satSub(minuteScore[previous21], 2);
-    } else if (e.bit == 1) {
-        // long tick: +1 current-21, -2 current, -2 previous
+    } else if (bit == 1) {
         satAdd(minuteScore[previous21], 1);
         satSub(minuteScore[current], 2);
         satSub(minuteScore[previous], 2);
     } else {
-        // undefined: penalize all positions directly contradicted by it.
         satSub(minuteScore[current], 2);
         satSub(minuteScore[previous], 2);
         satSub(minuteScore[previous21], 2);
@@ -206,10 +208,34 @@ void updateMinutePhase(const SampledDcfEvent &e) {
     snapshotState.minuteLockThreshold = 12;
     snapshotState.syncCandidates = syncCandidateCount;
 
-    // Udo's second decoder uses a lock threshold of 12 between signal_max
-    // and noise_max. Keep the same criterion here.
     minutePhaseLocked = minuteQuality >= 12;
     minuteStable = minutePhaseLocked ? 255 : 0;
+}
+
+void updateMinutePhase(const SampledDcfEvent &e) {
+    // Confirm the PREVIOUS quiet second as sync only when this second is the
+    // known DCF77 bit-0 and has useful confidence.
+    if (pendingMarkerCandidate) {
+        const bool confirmed = (e.bit == 0 && !e.markerCandidate && e.confidence >= 55);
+        if (confirmed) {
+            applyMinuteScore(pendingMarkerRawTick, -1, true);
+        } else {
+            // A random dropout must not earn sync points. Treat it merely as
+            // undefined evidence at its original position.
+            applyMinuteScore(pendingMarkerRawTick, -1, false);
+        }
+        pendingMarkerCandidate = false;
+    }
+
+    if (e.markerCandidate) {
+        pendingMarkerCandidate = true;
+        pendingMarkerRawTick = rawSecondTick;
+        pendingMarkerConfidence = e.confidence;
+        // Do not score the quiet second yet. The next second decides.
+        return;
+    }
+
+    applyMinuteScore(rawSecondTick, e.bit, false);
 }
 
 uint8_t decodedSecondForRawTick(uint8_t rawTick) {
@@ -408,6 +434,9 @@ void sampledDcfReset() {
     minutePhaseLocked = false;
     minuteStable = 0;
     syncCandidateCount = 0;
+    pendingMarkerCandidate = false;
+    pendingMarkerRawTick = 0;
+    pendingMarkerConfidence = 0;
     snapshotState = SampledDcfSnapshot{};
     eventHead = eventTail = 0;
     previousWasMarker = false;
