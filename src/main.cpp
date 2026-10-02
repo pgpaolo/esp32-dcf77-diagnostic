@@ -272,6 +272,14 @@ void loop() {
 
     portalPoll(decoder, receiver);
 
+    const SignalMode requestedMode = portalSignalMode();
+    if (requestedMode != decoder.signalMode()) {
+        decoder.setSignalMode(requestedMode);
+        clearPulseCapture();
+        Serial.printf("MASO signal mode changed: %s\n",
+                      requestedMode == SignalMode::DCF77 ? "EU 77.5 kHz DCF77" : "UK 60 kHz RAW");
+    }
+
     const bool requestedPolarity = portalDcfActiveLow();
     if (requestedPolarity != dcfActiveLowRuntime) {
         dcfActiveLowRuntime = requestedPolarity;
