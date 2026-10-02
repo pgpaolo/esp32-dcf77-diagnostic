@@ -573,6 +573,38 @@ void sampledDcfReset() {
     syntheticStartUs = micros();
 }
 
+void analyzeRawWindow(const uint8_t bins[BINS]) {
+    uint8_t risingEdges = 0;
+    uint8_t longBlocks = 0;
+    uint8_t longestBins = 0;
+    uint8_t run = 0;
+    bool wasActive = false;
+
+    for (uint8_t i = 0; i < BINS; ++i) {
+        const bool active = bins[i] > 5;
+
+        if (active && !wasActive) {
+            if (risingEdges < 255) ++risingEdges;
+        }
+
+        if (active) {
+            if (run < 100) ++run;
+            if (run > longestBins) longestBins = run;
+        } else {
+            if (run >= 3 && longBlocks < 255) ++longBlocks;
+            run = 0;
+        }
+
+        wasActive = active;
+    }
+
+    if (run >= 3 && longBlocks < 255) ++longBlocks;
+
+    snapshotState.rawRisingEdges = risingEdges;
+    snapshotState.rawLongBlocks = longBlocks;
+    snapshotState.rawLongestBlockMs = static_cast<uint16_t>(longestBins) * 10U;
+}
+
 void sampledDcfPoll() {
     if (!windowReady) return;
 
@@ -594,6 +626,7 @@ void sampledDcfPoll() {
     snapshotState.activeMs = activeMs;
     snapshotState.secondsObserved++;
     snapshotState.droppedWindows = drops;
+    analyzeRawWindow(current);
 
     const uint32_t newDrops = drops - lastHandledDroppedWindows;
     lastHandledDroppedWindows = drops;
