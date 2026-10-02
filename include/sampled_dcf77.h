@@ -40,6 +40,11 @@ struct SampledDcfSnapshot {
     uint8_t minuteLockThreshold = 12;
     uint32_t syncCandidates = 0;
     uint32_t rawSyncCandidates = 0;
+
+    // Raw OUT diagnostics for the last complete 1-second capture.
+    uint8_t rawRisingEdges = 0;
+    uint8_t rawLongBlocks = 0;       // active blocks >= 30 ms
+    uint16_t rawLongestBlockMs = 0;
 };
 
 void sampledDcfBegin(uint8_t pin, bool activeLow);
