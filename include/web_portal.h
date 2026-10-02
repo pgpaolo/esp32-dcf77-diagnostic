@@ -4,4 +4,5 @@
 void portalBegin();
 void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver);
 bool portalTakeReceiverResetRequest();
+bool portalDcfActiveLow();
 const char *portalAddress();
