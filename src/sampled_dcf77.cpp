@@ -208,6 +208,28 @@ void pushEvent(const SampledDcfEvent &e) {
     eventHead = next;
 }
 
+int templateScore(const uint8_t combined[200], uint16_t start, uint8_t activeBins) {
+    // 10 samples per 10 ms bin. Reward activity where the DCF pulse should
+    // exist and reward inactivity after it. This is deliberately tolerant of
+    // a noisy receiver and does not require perfect edges.
+    int score = 0;
+    for (uint8_t i = 0; i < 22; ++i) {
+        const uint8_t v = combined[start + i];
+        if (i < activeBins) {
+            score += static_cast<int>(v) * 2;
+        } else {
+            score += static_cast<int>(10 - v);
+        }
+    }
+
+    // Penalize late activity, where a valid DCF77 pulse should already have
+    // returned to the idle level.
+    for (uint8_t i = 25; i < 55; ++i) {
+        score -= static_cast<int>(combined[start + i]) / 2;
+    }
+    return score;
+}
+
 void classifyPreviousSecond(const uint8_t combined[200]) {
     if (!currentPhaseLocked) {
         snapshotState.lastBit = -1;
@@ -222,38 +244,69 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
         return;
     }
 
-    const uint16_t p = currentPhaseBin;
-    const uint16_t first110 = windowSignal(combined, p, 11);
-    const uint16_t second110 = windowSignal(combined, p + 11, 11);
-    const uint16_t noise = windowSignal(combined, p + 25, 50);
+    // The phase accumulator gives the centre of the useful region, but a real
+    // receiver can move the apparent edge by several tens of milliseconds.
+    // Search +/-50 ms and compare 100 ms and 200 ms DCF77 templates.
+    int best0 = -32768;
+    int best1 = -32768;
+    uint16_t best0Start = currentPhaseBin;
+    uint16_t best1Start = currentPhaseBin;
 
-    const bool firstActive = first110 >= 55;
-    const bool secondActive = second110 >= 55;
+    for (int8_t shift = -5; shift <= 5; ++shift) {
+        int candidate = static_cast<int>(currentPhaseBin) + shift;
+        while (candidate < 0) candidate += 100;
+        while (candidate >= 100) candidate -= 100;
+
+        // combined[] contains previous+current second, so candidates in the
+        // first second can always be evaluated through the following bins.
+        const uint16_t st = static_cast<uint16_t>(candidate);
+        const int s0 = templateScore(combined, st, 10);
+        const int s1 = templateScore(combined, st, 20);
+
+        if (s0 > best0) { best0 = s0; best0Start = st; }
+        if (s1 > best1) { best1 = s1; best1Start = st; }
+    }
 
     SampledDcfEvent e;
     e.startUs = syntheticStartUs;
     syntheticStartUs += 1000000UL;
+    e.minuteMarker = false;
+    e.markerCandidate = false;
 
-    if (!firstActive && !secondActive) {
-        // Do not call this MIN yet. It is only a candidate for second 59.
-        e.markerCandidate = true;
-        e.minuteMarker = false;
-        e.bit = -1;
-        e.pulseMs = 0;
-        e.confidence = noise < 80 ? 80 : (noise < 150 ? 55 : 30);
-    } else {
-        e.markerCandidate = false;
-        e.minuteMarker = false;
-        e.bit = firstActive ? (secondActive ? 1 : 0) : -1;
-        e.pulseMs = e.bit == 0 ? 100 : (e.bit == 1 ? 200 : 0);
+    const int best = best0 > best1 ? best0 : best1;
+    const int other = best0 > best1 ? best1 : best0;
+    const int separation = best - other;
 
-        const uint16_t signalStrength = first110 + second110;
-        const uint16_t penalty = noise / 4U;
-        int conf = static_cast<int>(signalStrength / 2U) - static_cast<int>(penalty);
-        if (e.bit < 0) conf /= 2;
-        if (conf < 0) conf = 0;
+    // A useful DCF symbol must have a recognizable template and some
+    // separation between 0 and 1. Weak cases stay '?' and are accumulated.
+    if (best >= 180 && separation >= 12) {
+        if (best0 > best1) {
+            e.bit = 0;
+            e.pulseMs = 100;
+        } else {
+            e.bit = 1;
+            e.pulseMs = 200;
+        }
+        int conf = 35 + separation;
         if (conf > 100) conf = 100;
         e.confidence = static_cast<uint8_t>(conf);
+    } else {
+        e.bit = -1;
+        e.pulseMs = 0;
+
+        // Only weak signal around both templates becomes minute-marker
+        // evidence. It is NOT emitted as MIN until the 60-second phase locks.
+        if (best < 135) {
+            e.markerCandidate = true;
+            int conf = 70 - best / 3;
+            if (conf < 20) conf = 20;
+            if (conf > 80) conf = 80;
+            e.confidence = static_cast<uint8_t>(conf);
+        } else {
+            int conf = separation * 2;
+            if (conf > 45) conf = 45;
+            e.confidence = static_cast<uint8_t>(conf);
+        }
     }
 
     updateMinutePhase(e);
@@ -262,7 +315,6 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     e.secondQuality = minuteQuality;
     e.secondIndex = minutePhaseLocked ? decodedSecondForRawTick(rawSecondTick) : 255;
 
-    // Only a locked second-59 position becomes a real minute marker.
     if (e.secondLocked && e.secondIndex == 59) {
         e.minuteMarker = true;
         e.bit = -1;
