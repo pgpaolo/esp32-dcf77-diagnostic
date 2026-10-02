@@ -7,6 +7,8 @@ void ReceiverControl::begin() {
     if (MASO_DRIVE_SEL) {
         digitalWrite(PIN_RX_BAND, MASO_SEL_LEVEL);
         pinMode(PIN_RX_BAND, OUTPUT);
+    } else {
+        pinMode(PIN_RX_BAND, INPUT); // MASO default: SEL FLOAT
     }
     if (MASO_DRIVE_PON) {
         digitalWrite(PIN_RX_PON, MASO_PON_LEVEL);
