@@ -33,6 +33,9 @@ bool scopeReady = false;
 uint16_t scopeLastSamples = 0;
 uint16_t scopeLastActiveSamples = 0;
 
+void resetScope();
+void pollScope();
+
 const char *modeLabel(PinDriveMode mode) {
     if (mode == PinDriveMode::FLOATING) return "FLOAT";
     return mode == PinDriveMode::HIGH_LEVEL ? "HIGH" : "LOW";
