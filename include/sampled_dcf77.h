@@ -9,6 +9,9 @@ struct SampledDcfEvent {
     uint8_t confidence = 0;
     uint16_t pulseMs = 0;
     uint32_t startUs = 0;
+    uint8_t secondIndex = 255; // 0..59 when minute phase is locked
+    uint8_t secondQuality = 0;
+    bool secondLocked = false;
 };
 
 struct SampledDcfSnapshot {
@@ -25,6 +28,9 @@ struct SampledDcfSnapshot {
     uint16_t lastPulseMs = 0;
     uint32_t secondsObserved = 0;
     uint32_t droppedWindows = 0;
+    uint8_t secondIndex = 255;
+    uint8_t secondQuality = 0;
+    bool secondLocked = false;
 };
 
 void sampledDcfBegin(uint8_t pin, bool activeLow);
