@@ -7,6 +7,21 @@ namespace {
 ESP8266WebServer server(80);
 const DCF77Decoder *currentDecoder = nullptr;
 uint32_t observedPulses = 0, lastPulseMs = 0;
+enum class SelMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
+SelMode selMode = SelMode::FLOATING;
+
+void applySelMode(SelMode mode) {
+    selMode = mode;
+    if (mode == SelMode::FLOATING) {
+        pinMode(PIN_RX_BAND, INPUT);
+        Serial.println("MASO SEL: FLOAT / input");
+        return;
+    }
+    digitalWrite(PIN_RX_BAND, mode == SelMode::HIGH_LEVEL ? HIGH : LOW);
+    pinMode(PIN_RX_BAND, OUTPUT);
+    Serial.printf("MASO SEL: GPIO%d -> %s\n", PIN_RX_BAND,
+                  mode == SelMode::HIGH_LEVEL ? "HIGH" : "LOW");
+}
 
 String jsonEscape(const String &value) {
     String out;
@@ -59,6 +74,18 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}
 <p id="wifiMsg" class="muted"></p>
 </div>
 
+<div class="card">
+<h2 style="margin-top:0">Ricevitore MASO-S-R1</h2>
+<p class="muted">SEL è collegato a <b>GPIO5 / D1</b>. Puoi lasciarlo flottante oppure pilotarlo a LOW o HIGH per verificare quale stato abilita correttamente il ricevitore DCF77.</p>
+<div id="selState" class="warn">SEL: verifica stato…</div>
+<div class="row" style="margin-top:12px">
+<div><button type="button" onclick="setSel('float')">SEL FLOAT</button></div>
+<div><button type="button" onclick="setSel('low')">SEL LOW</button></div>
+<div><button type="button" onclick="setSel('high')">SEL HIGH</button></div>
+</div>
+<p id="selMsg" class="muted"></p>
+</div>
+
 <dl id="metrics"></dl>
 <h2>Ultimo frame</h2><pre id="frame">—</pre>
 
@@ -98,6 +125,31 @@ async function updateWifi(){
   }
 }
 
+async function updateReceiver(){
+  try{
+    const r=await fetch('/api/receiver',{cache:'no-store'});
+    if(!r.ok)throw Error();
+    const d=await r.json();
+    const el=document.getElementById('selState');
+    el.className=d.sel==='FLOAT'?'warn':'ok';
+    el.textContent='SEL: '+d.sel+' · GPIO '+d.gpio;
+  }catch(e){
+    const el=document.getElementById('selState');el.className='err';el.textContent='Impossibile leggere lo stato SEL';
+  }
+}
+
+async function setSel(mode){
+  const msg=document.getElementById('selMsg');
+  msg.textContent='Impostazione SEL…';
+  try{
+    const body=new URLSearchParams({mode});
+    const r=await fetch('/api/receiver/sel',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const d=await r.json();
+    msg.textContent=d.message||'SEL aggiornato';
+    updateReceiver();
+  }catch(e){msg.textContent='Errore durante la modifica di SEL'}
+}
+
 async function scanNetworks(){
   const b=document.getElementById('scanBtn'), msg=document.getElementById('wifiMsg'), sel=document.getElementById('ssid');
   b.disabled=true;msg.textContent='Scansione in corso…';
@@ -131,8 +183,9 @@ async function connectWifi(){
 
 setInterval(update,2000);
 setInterval(updateWifi,3000);
-document.addEventListener('visibilitychange',()=>{update();updateWifi()});
-update();updateWifi();
+setInterval(updateReceiver,3000);
+document.addEventListener('visibilitychange',()=>{update();updateWifi();updateReceiver()});
+update();updateWifi();updateReceiver();
 </script></html>)HTML";
 
 void status() {
@@ -167,6 +220,36 @@ void status() {
     json += "\"}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",json);
+}
+
+void receiverStatus() {
+    String json;
+    json.reserve(96);
+    json = "{\"sel\":\"";
+    if (selMode == SelMode::FLOATING) json += "FLOAT";
+    else if (selMode == SelMode::LOW_LEVEL) json += "LOW";
+    else json += "HIGH";
+    json += "\",\"gpio\":";
+    json += String(PIN_RX_BAND);
+    json += "}";
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",json);
+}
+
+void setSel() {
+    if (!server.hasArg("mode")) {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
+        return;
+    }
+    const String mode = server.arg("mode");
+    if (mode == "float") applySelMode(SelMode::FLOATING);
+    else if (mode == "low") applySelMode(SelMode::LOW_LEVEL);
+    else if (mode == "high") applySelMode(SelMode::HIGH_LEVEL);
+    else {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Valore SEL non valido\"}");
+        return;
+    }
+    server.send(200,"application/json","{\"ok\":true,\"message\":\"SEL aggiornato\"}");
 }
 
 void wifiStatus() {
@@ -251,6 +334,8 @@ void portalBegin() {
 
     server.on("/",HTTP_GET,[](){server.send_P(200,"text/html; charset=utf-8",page);});
     server.on("/api/status",HTTP_GET,status);
+    server.on("/api/receiver",HTTP_GET,receiverStatus);
+    server.on("/api/receiver/sel",HTTP_POST,setSel);
     server.on("/api/wifi",HTTP_GET,wifiStatus);
     server.on("/api/networks",HTTP_GET,scanNetworks);
     server.on("/api/wifi/connect",HTTP_POST,connectWifi);
