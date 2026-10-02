@@ -21,6 +21,18 @@ PinDriveMode selMode = PinDriveMode::FLOATING;
 PinDriveMode ponMode = PinDriveMode::LOW_LEVEL;
 SignalMode selectedSignalMode = SignalMode::DCF77;
 
+// Sampled scope (MIT-compatible independent implementation inspired by the
+// troubleshooting method used by Udo Klein and other DCF77 projects).
+// 1 ms sampling, 100 bins x 10 ms over one second.
+uint8_t scopeBins[100] = {};
+uint8_t scopeLastBins[100] = {};
+uint16_t scopeTick = 0;
+uint32_t scopeNextSampleUs = 0;
+uint32_t scopeWindowStartUs = 0;
+bool scopeReady = false;
+uint16_t scopeLastSamples = 0;
+uint16_t scopeLastActiveSamples = 0;
+
 const char *modeLabel(PinDriveMode mode) {
     if (mode == PinDriveMode::FLOATING) return "FLOAT";
     return mode == PinDriveMode::HIGH_LEVEL ? "HIGH" : "LOW";
@@ -56,6 +68,7 @@ void resetReceiverDiagnostics(bool cancelPonStart = true) {
     rateSampleMs = 0;
     rateSamplePulses = 0;
     pulseEventsPerSecond = 0.0f;
+    resetScope();
 }
 
 void applyOutInputMode(bool pullup) {
@@ -63,6 +76,57 @@ void applyOutInputMode(bool pullup) {
     pinMode(PIN_DCF77, pullup ? INPUT_PULLUP : INPUT);
     Serial.printf("MASO OUT: GPIO%d -> %s\n", PIN_DCF77, pullup ? "INPUT_PULLUP" : "INPUT");
     resetReceiverDiagnostics();
+}
+
+void resetScope() {
+    memset(scopeBins, 0, sizeof(scopeBins));
+    memset(scopeLastBins, 0, sizeof(scopeLastBins));
+    scopeTick = 0;
+    scopeWindowStartUs = micros();
+    scopeNextSampleUs = scopeWindowStartUs;
+    scopeReady = false;
+    scopeLastSamples = 0;
+    scopeLastActiveSamples = 0;
+}
+
+void pollScope() {
+    const uint32_t now = micros();
+    if (!scopeWindowStartUs) resetScope();
+
+    // One sample per call max. If Wi-Fi/web work delayed us, do not create
+    // artificial catch-up samples: reschedule from the current instant.
+    if (static_cast<int32_t>(now - scopeNextSampleUs) >= 0) {
+        const bool rawHigh = digitalRead(PIN_DCF77) != 0;
+        const bool active = dcfActiveLowSelected ? !rawHigh : rawHigh;
+        uint16_t bin = scopeTick / 10U;
+        if (bin > 99) bin = 99;
+        if (active && scopeBins[bin] < 10) scopeBins[bin]++;
+        if (scopeTick < 1000) scopeTick++;
+        scopeNextSampleUs += 1000UL;
+        if (static_cast<int32_t>(now - scopeNextSampleUs) > 5000) {
+            scopeNextSampleUs = now + 1000UL;
+        }
+    }
+
+    if (now - scopeWindowStartUs >= 1000000UL) {
+        memcpy(scopeLastBins, scopeBins, sizeof(scopeBins));
+        memset(scopeBins, 0, sizeof(scopeBins));
+
+        scopeLastSamples = scopeTick > 1000 ? 1000 : scopeTick;
+        scopeLastActiveSamples = 0;
+        for (uint8_t i = 0; i < 100; ++i) scopeLastActiveSamples += scopeLastBins[i];
+
+        scopeTick = 0;
+        scopeReady = true;
+        scopeWindowStartUs = now;
+        scopeNextSampleUs = now + 1000UL;
+    }
+}
+
+char scopeChar(uint8_t v) {
+    if (v == 0) return '-';
+    if (v >= 10) return 'X';
+    return static_cast<char>('0' + v);
 }
 
 String jsonEscape(const String &value) {
@@ -164,6 +228,11 @@ th:first-child,td:first-child{text-align:left}
 </div>
 
 <dl id="metrics"></dl>
+
+<h2>Scope DCF77 · 1 secondo</h2>
+<p class="muted">Campionamento diretto di OUT ogni ~1 ms, raggruppato in 100 celle da 10 ms. "-" = inattivo, 1..9 = attività parziale, X = attivo per tutta la cella. Questo monitor non dipende dal decoder a fronti.</p>
+<pre id="scopeLine">Attesa primo secondo completo…</pre>
+<p id="scopeInfo" class="muted"></p>
 
 <h2>Monitor impulsi</h2>
 <p class="muted">Ultimi impulsi ricevuti, dal più recente. In modalità DCF77 il frame avanza solo sugli eventi con timing valido (~1 s, marker minuto ~2 s). In modalità RAW 60 kHz il monitor non assegna bit DCF77.</p>
@@ -290,6 +359,21 @@ async function startPon(){
   }catch(e){btn.disabled=false;msg.textContent='Errore durante START PON'}
 }
 
+async function updateScope(){
+  if(document.hidden)return;
+  try{
+    const r=await fetch('/api/scope',{cache:'no-store'});
+    if(!r.ok)throw Error();
+    const d=await r.json();
+    document.getElementById('scopeLine').textContent=d.ready?d.line:'Attesa primo secondo completo…';
+    document.getElementById('scopeInfo').textContent=d.ready
+      ? ('attivo '+d.activeMs+' ms/s · campioni '+d.samples+'/1000 · copertura '+d.coverage+'%')
+      : '';
+  }catch(e){
+    document.getElementById('scopeLine').textContent='Errore lettura scope';
+  }
+}
+
 async function updatePulses(){
   if(document.hidden)return;
   try{
@@ -355,8 +439,9 @@ setInterval(update,2000);
 setInterval(updateWifi,3000);
 setInterval(updateReceiver,3000);
 setInterval(updatePulses,2000);
-document.addEventListener('visibilitychange',()=>{update();updateWifi();updateReceiver();updatePulses()});
-update();updateWifi();updateReceiver();updatePulses();
+setInterval(updateScope,1000);
+document.addEventListener('visibilitychange',()=>{update();updateWifi();updateReceiver();updatePulses();updateScope()});
+update();updateWifi();updateReceiver();updatePulses();updateScope();
 </script></html>)HTML";
 
 void status() {
@@ -395,6 +480,26 @@ void status() {
     const int8_t *bits = currentDecoder->lastFrameBits();
     for (uint8_t i=0;i<currentDecoder->lastFrameCount();++i) json += bits[i]<0?'?':(bits[i]?'1':'0');
     json += "\"}";
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",json);
+}
+
+void scopeStatus() {
+    String json;
+    json.reserve(280);
+    json = "{\"ready\":";
+    json += scopeReady ? "true" : "false";
+    json += ",\"line\":\"";
+    if (scopeReady) {
+        for (uint8_t i = 0; i < 100; ++i) json += scopeChar(scopeLastBins[i]);
+    }
+    json += "\",\"samples\":";
+    json += String(scopeLastSamples);
+    json += ",\"activeMs\":";
+    json += String(scopeLastActiveSamples);
+    json += ",\"coverage\":";
+    json += String(scopeLastSamples >= 1000 ? 100 : (scopeLastSamples * 100UL) / 1000UL);
+    json += "}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",json);
 }
@@ -642,6 +747,7 @@ void portalBegin() {
     outPullupEnabled = false;
     selectedSignalMode = SignalMode::DCF77;
     dcfActiveLowSelected = DCF77_ACTIVE_LOW;
+    resetScope();
 
     WiFi.persistent(false);
     WiFi.mode(WIFI_AP_STA);
@@ -659,6 +765,7 @@ void portalBegin() {
     server.on("/",HTTP_GET,[](){server.send_P(200,"text/html; charset=utf-8",page);});
     server.on("/api/status",HTTP_GET,status);
     server.on("/api/pulses",HTTP_GET,pulseStatus);
+    server.on("/api/scope",HTTP_GET,scopeStatus);
     server.on("/api/receiver",HTTP_GET,receiverStatus);
     server.on("/api/decoder",HTTP_POST,setDecoderMode);
     server.on("/api/receiver/control",HTTP_POST,setReceiverControl);
@@ -675,6 +782,7 @@ void portalBegin() {
 void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver) {
     (void)receiver;
     currentDecoder=&decoder;
+    pollScope();
     const uint32_t now = millis();
     const uint32_t total = decoder.stats().totalPulses;
     if (observedPulses != total) {
