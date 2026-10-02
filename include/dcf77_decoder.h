@@ -14,6 +14,17 @@ struct RawPulse {
     int32_t ppsOffsetUs = INT32_MIN;
 };
 
+struct PulseTrace {
+    uint32_t capturedMs = 0;
+    uint32_t widthUs = 0;
+    uint32_t periodUs = 0;
+    int8_t bit = -1;
+    bool valid = false;
+    bool secondTimingOk = false;
+    bool minuteGap = false;
+    uint8_t framePos = 0;
+};
+
 struct DCFDateTime {
     int year = 0;
     int month = 0;
@@ -80,6 +91,9 @@ public:
     const int8_t *lastFrameBits() const { return _lastFrame; }
     uint8_t lastFrameCount() const { return _lastFrameCount; }
 
+    uint8_t recentPulseCount() const { return _pulseTraceCount; }
+    bool recentPulse(uint8_t newestIndex, PulseTrace &out) const;
+
 private:
     SignalMode _mode = SignalMode::DCF77;
     DecoderStats _stats;
@@ -98,6 +112,11 @@ private:
     uint8_t _jitterPos = 0;
     uint8_t _jitterCount = 0;
 
+    static constexpr uint8_t PULSE_TRACE_SIZE = 24;
+    PulseTrace _pulseTrace[PULSE_TRACE_SIZE];
+    uint8_t _pulseTraceHead = 0;
+    uint8_t _pulseTraceCount = 0;
+
     uint32_t _zeroCount = 0;
     uint32_t _oneCount = 0;
     uint32_t _periodCount = 0;
@@ -107,6 +126,8 @@ private:
     bool _clockBaseValid = false;
 
     int classifyPulse(uint32_t widthUs) const;
+    void recordPulseTrace(const RawPulse &pulse, int bit, bool valid,
+                          bool secondTimingOk, bool minuteGap);
     void finalizeFrame(uint32_t newMinuteStartUs);
     bool decodeFrame(DCFDateTime &out);
     void updateQuality(const RawPulse &pulse, int bit, bool valid, bool normalSecond);
