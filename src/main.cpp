@@ -269,5 +269,12 @@ void loop() {
     ui.draw(decoder, analogRaw, receiver.bandLabel(), receiver.ready());
 
     portalPoll(decoder, receiver);
+
+    if (portalTakeReceiverResetRequest()) {
+        decoder.reset();
+        clearPulseCapture();
+        Serial.println("MASO diagnostic reset: decoder statistics and pulse timing cleared");
+    }
+
     delay(2);
 }
