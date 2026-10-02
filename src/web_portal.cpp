@@ -344,6 +344,7 @@ async function update(){
 }
 
 async function updateWifi(){
+  if(document.hidden||Date.now()<quietUntil)return;
   try{
     const r=await fetch('/api/wifi',{cache:'no-store'});
     if(!r.ok)throw Error();
@@ -362,6 +363,7 @@ async function updateWifi(){
 }
 
 async function updateReceiver(){
+  if(document.hidden||Date.now()<quietUntil)return;
   try{
     const r=await fetch('/api/receiver',{cache:'no-store'});
     if(!r.ok)throw Error();
@@ -440,6 +442,7 @@ async function startPon(){
 }
 
 async function updateScope(){
+  if(Date.now()<quietUntil)return;
   if(document.hidden)return;
   try{
     const r=await fetch('/api/scope',{cache:'no-store'});
@@ -455,6 +458,7 @@ async function updateScope(){
 }
 
 async function updatePulses(){
+  if(Date.now()<quietUntil)return;
   if(document.hidden)return;
   try{
     const r=await fetch('/api/pulses',{cache:'no-store'});

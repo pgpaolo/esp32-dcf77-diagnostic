@@ -6,7 +6,7 @@
 #include <cstring>
 using std::min;
 using std::max;
-constexpr int HEX=16,DEC=10;
+constexpr int HEX=16,DEC=10,BIN=2;
 #define F(value) value
 struct SilentSerial {
     template<class... T> void print(T...) {}

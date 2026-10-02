@@ -52,8 +52,9 @@ I profili ESP32 mantengono le precedenti finestre e impostazioni elettriche.
 - [Udo Klein, dcf77](https://github.com/udoklein/dcf77): decoder resistente
   al rumore con rilevamento di fase e accumulo statistico. Il file
   [dcf77.h](https://github.com/udoklein/dcf77/blob/master/dcf77.h) contiene supporto
-  ESP8266 esplicitamente sperimentale. È un candidato per un confronto futuro
-  sugli stessi campioni, non una libreria già integrata in questo progetto.
+  ESP8266 esplicitamente sperimentale. È ora disponibile un
+  [confronto offline sugli stessi campioni registrati](RAW_RECORDING.md);
+  la libreria non è incorporata nel firmware.
   [Super Filter](https://blog.blinkenlight.net/experiments/dcf77/super-filter/)
   decodifica e rigenera il segnale: richiede comunque una ricezione decodificabile.
 - [AZ-Delivery, orologio ESP in MicroPython, parte 6](https://www.az-delivery.de/en/blogs/azdelivery-blog-fur-arduino-und-raspberry-pi/funkwecker-mit-esp-in-micropython-teil-6-dcf77-funkmodul):
