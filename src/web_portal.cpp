@@ -333,7 +333,7 @@ async function updateScope(){
     const d=await r.json();
     document.getElementById('scopeLine').textContent=d.ready?d.line:'Attesa primo secondo completo…';
     document.getElementById('scopeInfo').textContent=d.ready
-      ? ('attivo '+d.activeMs+' ms/s · campioni '+d.samples+'/1000 · copertura '+d.coverage+'% · fase '+d.phaseBin+'0 ms · qualità fase '+d.phaseQuality+'% · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · simbolo '+d.lastSymbol+' ('+d.lastConfidence+'%) · secondo '+(d.secondLocked?d.secondIndex:'?')+' · qualità minuto '+d.secondQuality+' · '+(d.secondLocked?'MINUTE LOCK':'ricerca minuto')+' · drop '+d.droppedWindows)
+      ? ('attivo '+d.activeMs+' ms/s · campioni '+d.samples+'/1000 · copertura '+d.coverage+'% · fase '+d.phaseBin+'0 ms · qualità fase '+d.phaseQuality+'% · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · simbolo '+d.lastSymbol+' ('+d.lastConfidence+'%) · secondo '+(d.secondLocked?d.secondIndex:'?')+' · qualità minuto '+d.secondQuality+' · '+(d.secondLocked?'MINUTE LOCK':'accumulo minuto')+' · drop '+d.droppedWindows)
       : '';
   }catch(e){
     document.getElementById('scopeLine').textContent='Errore lettura scope';
