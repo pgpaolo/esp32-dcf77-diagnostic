@@ -18,12 +18,13 @@ constexpr uint8_t OLED_ADDRESS = 0x3C;
 constexpr uint32_t OLED_PAGE_MS = 5000;
 constexpr uint8_t PIN_BUTTON_PAGE = 0; // optional BOOT: do not hold at reset
 constexpr uint8_t PIN_BUTTON_BL = 255; // absent
-constexpr uint8_t PIN_DCF77 = 13;
-constexpr uint8_t PIN_RX_BAND = 4; // D2 -> MASO SEL
-constexpr uint8_t PIN_RX_PON = 5;  // D1 -> MASO PON / ENABLE
+// MASO-S-R1 PCB connector labels: SEL, OUT, PON, GND, VDD.
+constexpr uint8_t PIN_DCF77 = 13;   // D7 <- MASO OUT
+constexpr uint8_t PIN_RX_BAND = 4;  // D2 -> MASO SEL
+constexpr uint8_t PIN_RX_PON = 5;   // D1 -> MASO PON
 constexpr uint8_t PIN_DCF77_ANALOG = A0;
 constexpr uint8_t PIN_PPS = 16; // PPS disabled: GPIO16 has no edge interrupt
-static_assert(DCF_RX_DUAL_CMAX == 0, "HW364A uses unverified receiver controls; dual CMAX unsupported");
+static_assert(DCF_RX_DUAL_CMAX == 0, "HW364A MASO-S-R1 profile is single-frequency; dual CMAX unsupported");
 #else
 constexpr uint8_t PIN_TFT_BACKLIGHT = 4;
 constexpr uint8_t PIN_BUTTON_PAGE   = 35; // hardware pull-up on T-Display
@@ -43,7 +44,8 @@ constexpr uint8_t PIN_PPS = 33;
 constexpr bool DCF77_ACTIVE_LOW = true;
 constexpr bool DCF77_USE_INTERNAL_PULLUP = true;
 
-// MASO-S-R1: enable only after verifying the module's electrical specification.
+// MASO-S-R1 connector functions are confirmed from the PCB silkscreen.
+// SEL/PON electrical polarity is still intentionally runtime-testable from the web portal.
 constexpr bool MASO_DRIVE_SEL = false;
 constexpr bool MASO_DRIVE_PON = false;
 constexpr uint8_t MASO_SEL_LEVEL = LOW;
