@@ -349,15 +349,18 @@ async function updatePulses(){
     body.replaceChildren();
     if(!d.pulses.length){
       const tr=document.createElement('tr'),td=document.createElement('td');
-      td.colSpan=6;td.textContent='Attesa impulsi…';tr.append(td);body.append(tr);return;
+      td.colSpan=9;td.textContent='Attesa simboli / impulsi…';tr.append(td);body.append(tr);return;
     }
     d.pulses.forEach(p=>{
       const tr=document.createElement('tr');
       const vals=[
         (p.ageMs/1000).toFixed(1)+' s',
+        p.source,
+        p.secondIndex===null?'?':p.secondIndex,
         p.widthMs.toFixed(3),
         p.periodMs.toFixed(3),
         p.bitLabel,
+        p.confidence+'%',
         p.timingLabel,
         p.framePos
       ];
@@ -366,7 +369,7 @@ async function updatePulses(){
       body.append(tr);
     });
   }catch(e){
-    const body=document.getElementById('pulseRows');body.innerHTML='<tr><td colspan="6">Errore lettura impulsi</td></tr>';
+    const body=document.getElementById('pulseRows');body.innerHTML='<tr><td colspan="9">Errore lettura simboli / impulsi</td></tr>';
   }
 }
 
