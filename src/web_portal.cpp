@@ -311,7 +311,7 @@ void status() {
 
 void receiverStatus() {
     String json;
-    json.reserve(220);
+    json.reserve(320);
     json = "{\"sel\":\"";
     json += modeLabel(selMode);
     json += "\",\"selGpio\":";
@@ -324,6 +324,15 @@ void receiverStatus() {
     json += digitalRead(PIN_DCF77) ? "HIGH" : "LOW";
     json += "\",\"outGpio\":";
     json += String(PIN_DCF77);
+    json += ",\"outMode\":\"";
+    json += outPullupEnabled ? "INPUT_PULLUP" : "INPUT";
+    json += "\",\"ponStartActive\":";
+    json += ponStartActive ? "true" : "false";
+    json += ",\"ponStartRemainingMs\":";
+    const uint32_t elapsed = ponStartActive ? (millis() - ponStartBeganMs) : 0;
+    json += ponStartActive && elapsed < PON_START_HIGH_MS
+              ? String(PON_START_HIGH_MS - elapsed)
+              : String(0);
     json += ",\"eventsPerSecond\":";
     json += String(pulseEventsPerSecond,1);
     json += ",\"secondsSinceChange\":";
