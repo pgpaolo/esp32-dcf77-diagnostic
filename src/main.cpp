@@ -284,41 +284,18 @@ void loop() {
         }
     }
 
-    static bool sampledMarkerPending = false;
     SampledDcfEvent sampled;
     while (sampledDcfPopEvent(sampled)) {
         if (!receiver.ready() || decoder.signalMode() != SignalMode::DCF77) continue;
 
-        // Once the 60-position accumulator is locked, second 59 is the
-        // minute marker by definition. Do not require a perfectly silent RF
-        // second: interference may leave activity in that slot.
-        const bool inferredMinuteMarker =
-            sampled.secondLocked && sampled.secondIndex == 59;
-
-        if (sampled.minuteMarker || inferredMinuteMarker) {
-            sampledMarkerPending = true;
-            continue;
+        // Direct sampled-symbol path: preserve the phase decoder's exact
+        // second index and confidence instead of fabricating edge timings.
+        if (sampled.secondLocked) {
+            decoder.processSampledSymbol(sampled.secondIndex,
+                                         sampled.bit,
+                                         sampled.confidence,
+                                         sampled.minuteMarker);
         }
-
-        // Before minute phase lock we only collect diagnostics. Starting a
-        // frame at an arbitrary second would create plausible-looking but
-        // positionally meaningless data.
-        if (!sampled.secondLocked) continue;
-
-        RawPulse sp;
-        sp.startUs = sampled.startUs;
-        sp.widthUs = static_cast<uint32_t>(sampled.pulseMs) * 1000UL;
-
-        // The first pulse after DCF second 59 represents second 0 and arrives
-        // two seconds after the previous pulse. This gives the existing
-        // decoder an unambiguous minute boundary.
-        const bool firstSecond = sampled.secondIndex == 0;
-        sp.periodUs = (sampledMarkerPending || firstSecond) ? 2000000UL : 1000000UL;
-        sp.ppsOffsetUs = INT32_MIN;
-        sampledMarkerPending = false;
-
-        decoder.processPulse(sp);
-        logPulse(sp);
     }
 #else
     RawPulse p;
