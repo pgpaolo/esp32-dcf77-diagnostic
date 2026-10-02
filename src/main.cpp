@@ -195,11 +195,18 @@ void pollSerialCommands() {
 void logPulse(const RawPulse &p) {
     if (!SERIAL_PULSE_LOG) return;
     const DecoderStats &s = decoder.stats();
+#if defined(ESP8266)
+    Serial.printf("PULSE,mode=%s,bit=%d,width_us=%lu,period_us=%lu,jitter_us=%ld,quality=%u,frame_pos=%u,pps_us=",
+                  decoder.signalMode() == SignalMode::DCF77 ? "DCF77" : "RAW60",
+                  s.lastBit, (unsigned long)p.widthUs, (unsigned long)p.periodUs,
+                  (long)s.lastJitterUs, s.quality, s.frameBitCount);
+#else
     Serial.printf("PULSE,band=%.1f,mode=%s,bit=%d,width_us=%lu,period_us=%lu,jitter_us=%ld,quality=%u,frame_pos=%u,pps_us=",
                   receiver.frequencyKHz(),
                   decoder.signalMode() == SignalMode::DCF77 ? "DCF77" : "RAW60",
                   s.lastBit, (unsigned long)p.widthUs, (unsigned long)p.periodUs,
                   (long)s.lastJitterUs, s.quality, s.frameBitCount);
+#endif
     if (p.ppsOffsetUs == INT32_MIN) Serial.println("NA");
     else Serial.println(p.ppsOffsetUs);
 }
@@ -268,16 +275,22 @@ void loop() {
 
     int analogRaw = -1;
     if (DCF77_ANALOG_ENABLED) analogRaw = analogRead(PIN_DCF77_ANALOG);
+#if defined(ESP8266)
+    const char *displayMode = decoder.signalMode() == SignalMode::DCF77 ? "DCF77 TEST" : "RAW 60k TEST";
+    ui.draw(decoder, analogRaw, displayMode, receiver.ready());
+#else
     ui.draw(decoder, analogRaw, receiver.bandLabel(), receiver.ready());
+#endif
 
     portalPoll(decoder, receiver);
 
+#if defined(ESP8266)
     const SignalMode requestedMode = portalSignalMode();
     if (requestedMode != decoder.signalMode()) {
         decoder.setSignalMode(requestedMode);
         clearPulseCapture();
-        Serial.printf("MASO signal mode changed: %s\n",
-                      requestedMode == SignalMode::DCF77 ? "EU 77.5 kHz DCF77" : "UK 60 kHz RAW");
+        Serial.printf("MASO decoder mode changed: %s\n",
+                      requestedMode == SignalMode::DCF77 ? "DCF77 77.5 kHz" : "RAW 60 kHz");
     }
 
     const bool requestedPolarity = portalDcfActiveLow();
@@ -288,6 +301,7 @@ void loop() {
         Serial.printf("MASO OUT polarity changed: ACTIVE %s\n",
                       dcfActiveLowRuntime ? "LOW" : "HIGH");
     }
+#endif
 
     if (portalTakeReceiverResetRequest()) {
         decoder.reset();
