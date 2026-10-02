@@ -113,12 +113,14 @@ void DCF77Decoder::processPulse(const RawPulse &pulse) {
         }
         _stats.minuteSynced = true;
         _frameCount = 0;
+        _stats.frameBitCount = 0;
         memset(_frame, -1, sizeof(_frame));
     } else if (pulse.periodUs > DCF_SECOND_MAX_US && pulse.periodUs != 0) {
         _stats.timingErrors++;
         if (_stats.minuteSynced) {
             _stats.minuteSynced = false;
             _frameCount = 0;
+            _stats.frameBitCount = 0;
             memset(_frame, -1, sizeof(_frame));
         }
     }
@@ -156,8 +158,14 @@ void DCF77Decoder::processPulse(const RawPulse &pulse) {
 
     updateQuality(pulse, bit, valid, normalSecond || minuteGap);
 
-    if (_stats.minuteSynced) {
-        if (_frameCount < sizeof(_frame)) {
+    // Advance the DCF frame only on a real one-second slot (or the first
+    // pulse after the minute gap). Asynchronous noise remains visible in the
+    // raw pulse monitor but must not shift the 59-bit frame.
+    const bool frameSlot = normalSecond || minuteGap;
+    if (_stats.minuteSynced && frameSlot) {
+        if (_frameCount < 59) {
+            // Keep '?' (-1) when timing is correct but pulse width is invalid:
+            // this preserves the second position without inventing a bit.
             _frame[_frameCount++] = static_cast<int8_t>(bit);
         }
         _stats.frameBitCount = _frameCount;
