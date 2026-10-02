@@ -88,6 +88,8 @@ public:
     const DCFDateTime &decodedTime() const { return _decoded; }
 
     bool getRunningClock(DCFDateTime &out) const;
+    const int8_t *currentFrameBits() const { return _frame; }
+    uint8_t currentFrameCount() const { return _frameCount; }
     const int8_t *lastFrameBits() const { return _lastFrame; }
     uint8_t lastFrameCount() const { return _lastFrameCount; }
 
