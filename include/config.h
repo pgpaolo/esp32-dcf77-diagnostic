@@ -41,10 +41,13 @@ constexpr uint8_t PIN_PPS = 33;
 // Generic DCF77 modules often use an active-low/open-collector output.
 // C-MAX exposes both TCO (positive) and TCON (inverted), so keep this
 // configurable according to the pin you actually wire to GPIO27.
-constexpr bool DCF77_ACTIVE_LOW = true;
 #if defined(ESP8266)
-constexpr bool DCF77_USE_INTERNAL_PULLUP = false; // HW364A test default: candidate OUT as plain INPUT
+// MASO-S-R1 / HW364A: bench tests show the useful DCF77 pulse as ACTIVE HIGH.
+// ACTIVE LOW produced the complementary waveform (~800 ms active instead of ~100/200 ms).
+constexpr bool DCF77_ACTIVE_LOW = false;
+constexpr bool DCF77_USE_INTERNAL_PULLUP = false; // candidate OUT as plain INPUT
 #else
+constexpr bool DCF77_ACTIVE_LOW = true;
 constexpr bool DCF77_USE_INTERNAL_PULLUP = true;  // preserve generic ESP32 receiver default
 #endif
 
