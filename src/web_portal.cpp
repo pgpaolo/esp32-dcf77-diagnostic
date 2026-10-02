@@ -200,10 +200,10 @@ th:first-child,td:first-child{text-align:left}
 <pre id="scopeLine">Attesa primo secondo completo…</pre>
 <p id="scopeInfo" class="muted"></p>
 
-<h2>Monitor impulsi</h2>
-<p class="muted">Ultimi impulsi ricevuti, dal più recente. In modalità DCF77 il frame avanza solo sugli eventi con timing valido (~1 s, marker minuto ~2 s). In modalità RAW 60 kHz il monitor non assegna bit DCF77.</p>
+<h2>Monitor simboli / impulsi</h2>
+<p class="muted">In modalità DCF77 mostra i simboli prodotti dal decoder campionato (secondo, bit e confidenza). In RAW 60 kHz continua a mostrare gli impulsi grezzi.</p>
 <table>
-<thead><tr><th>Età</th><th>Impulso ms</th><th>Periodo ms</th><th>Bit</th><th>Timing</th><th>Frame</th></tr></thead>
+<thead><tr><th>Età</th><th>Sorgente</th><th>Secondo</th><th>Impulso ms</th><th>Periodo ms</th><th>Bit</th><th>Conf.</th><th>Timing</th><th>Frame</th></tr></thead>
 <tbody id="pulseRows"><tr><td colspan="6">Attesa impulsi…</td></tr></tbody>
 </table>
 
