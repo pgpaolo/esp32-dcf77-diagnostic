@@ -11,6 +11,10 @@ uint32_t rateSampleMs = 0, rateSamplePulses = 0;
 float pulseEventsPerSecond = 0.0f;
 bool receiverResetRequested = false;
 uint32_t receiverChangedMs = 0;
+bool outPullupEnabled = DCF77_USE_INTERNAL_PULLUP;
+bool ponStartActive = false;
+uint32_t ponStartBeganMs = 0;
+constexpr uint32_t PON_START_HIGH_MS = 3000;
 enum class PinDriveMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
 PinDriveMode selMode = PinDriveMode::FLOATING;
 PinDriveMode ponMode = PinDriveMode::FLOATING;
@@ -39,6 +43,18 @@ void applySelMode(PinDriveMode mode) {
 void applyPonMode(PinDriveMode mode) {
     ponMode = mode;
     applyPinMode(PIN_RX_PON, mode, "PON");
+}
+
+void resetReceiverDiagnostics() {
+    ponStartActive = false;
+    resetReceiverDiagnostics();
+}
+
+void applyOutInputMode(bool pullup) {
+    outPullupEnabled = pullup;
+    pinMode(PIN_DCF77, pullup ? INPUT_PULLUP : INPUT);
+    Serial.printf("MASO OUT: GPIO%d -> %s\n", PIN_DCF77, pullup ? "INPUT_PULLUP" : "INPUT");
+    resetReceiverDiagnostics();
 }
 
 String jsonEscape(const String &value) {
@@ -110,6 +126,16 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}
 <div><button type="button" onclick="setReceiverPin('pon','low')">PON LOW</button></div>
 <div><button type="button" onclick="setReceiverPin('pon','high')">PON HIGH</button></div>
 </div>
+<p><b>OUT · D7 / GPIO13</b></p>
+<div class="row">
+<div><button type="button" onclick="setOutMode('input')">OUT INPUT</button></div>
+<div><button type="button" onclick="setOutMode('pullup')">OUT INPUT_PULLUP</button></div>
+</div>
+
+<p><b>Sequenza di avvio PON</b></p>
+<div class="row">
+<div><button id="ponStartBtn" type="button" onclick="startPon()">START PON · HIGH 3 s → LOW</button></div>
+</div>
 <p id="receiverMsg" class="muted"></p>
 </div>
 
@@ -161,9 +187,10 @@ async function updateReceiver(){
     el.className=(d.sel==='FLOAT'||d.pon==='FLOAT')?'warn':'ok';
     el.textContent='SEL '+d.sel+' · GPIO '+d.selGpio+
       ' | PON '+d.pon+' · GPIO '+d.ponGpio+
-      ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+
+      ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+' ('+d.outMode+')'+
       ' | eventi '+d.eventsPerSecond+'/s'+
-      ' | da modifica '+d.secondsSinceChange+' s';
+      ' | da modifica '+d.secondsSinceChange+' s'+
+      (d.ponStartActive?' | START PON in corso '+d.ponStartRemainingMs+' ms':'');
   }catch(e){
     const el=document.getElementById('receiverState');el.className='err';el.textContent='Impossibile leggere lo stato del ricevitore';
   }
@@ -179,6 +206,29 @@ async function setReceiverPin(pin,mode){
     msg.textContent=d.message||'Controllo aggiornato';
     updateReceiver();
   }catch(e){msg.textContent='Errore durante la modifica del ricevitore'}
+}
+
+async function setOutMode(mode){
+  const msg=document.getElementById('receiverMsg');
+  msg.textContent='Impostazione OUT '+mode.toUpperCase()+'…';
+  try{
+    const body=new URLSearchParams({mode});
+    const r=await fetch('/api/receiver/out',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const d=await r.json();
+    msg.textContent=d.message||'OUT aggiornato';
+    updateReceiver();
+  }catch(e){msg.textContent='Errore durante la modifica di OUT'}
+}
+
+async function startPon(){
+  const msg=document.getElementById('receiverMsg'),btn=document.getElementById('ponStartBtn');
+  btn.disabled=true;msg.textContent='START PON: HIGH per 3 secondi, poi LOW…';
+  try{
+    const r=await fetch('/api/receiver/pon-start',{method:'POST'});
+    const d=await r.json();
+    msg.textContent=d.message||'Sequenza PON avviata';
+    setTimeout(()=>{btn.disabled=false;updateReceiver()},3400);
+  }catch(e){btn.disabled=false;msg.textContent='Errore durante START PON'}
 }
 
 async function scanNetworks(){
@@ -318,6 +368,33 @@ void setReceiverControl() {
     server.send(200,"application/json",msg);
 }
 
+void setOutMode() {
+    if (!server.hasArg("mode")) {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
+        return;
+    }
+    const String mode = server.arg("mode");
+    if (mode == "input") applyOutInputMode(false);
+    else if (mode == "pullup") applyOutInputMode(true);
+    else {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Modalità OUT non valida\"}");
+        return;
+    }
+    server.send(200,"application/json",
+        mode == "input"
+          ? "{\"ok\":true,\"message\":\"OUT impostato su INPUT senza pull-up\"}"
+          : "{\"ok\":true,\"message\":\"OUT impostato su INPUT_PULLUP\"}");
+}
+
+void startPonSequence() {
+    ponStartActive = true;
+    ponStartBeganMs = millis();
+    applyPonMode(PinDriveMode::HIGH_LEVEL);
+    resetReceiverDiagnostics();
+    Serial.println("MASO START PON: HIGH, waiting 3000 ms before LOW");
+    server.send(202,"application/json","{\"ok\":true,\"message\":\"START PON avviato: HIGH per 3 s, poi LOW automatico\"}");
+}
+
 void wifiStatus() {
     const wl_status_t st = WiFi.status();
     String json; json.reserve(300);
@@ -402,6 +479,8 @@ void portalBegin() {
     server.on("/api/status",HTTP_GET,status);
     server.on("/api/receiver",HTTP_GET,receiverStatus);
     server.on("/api/receiver/control",HTTP_POST,setReceiverControl);
+    server.on("/api/receiver/out",HTTP_POST,setOutMode);
+    server.on("/api/receiver/pon-start",HTTP_POST,startPonSequence);
     server.on("/api/wifi",HTTP_GET,wifiStatus);
     server.on("/api/networks",HTTP_GET,scanNetworks);
     server.on("/api/wifi/connect",HTTP_POST,connectWifi);
@@ -418,6 +497,13 @@ void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver) {
         observedPulses = total;
         lastPulseMs = now;
     }
+    if (ponStartActive && now - ponStartBeganMs >= PON_START_HIGH_MS) {
+        ponStartActive = false;
+        applyPonMode(PinDriveMode::LOW_LEVEL);
+        resetReceiverDiagnostics();
+        Serial.println("MASO START PON: transition HIGH -> LOW completed; diagnostics reset");
+    }
+
     if (!rateSampleMs) {
         rateSampleMs = now;
         rateSamplePulses = total;
