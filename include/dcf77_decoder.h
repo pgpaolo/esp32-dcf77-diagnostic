@@ -22,6 +22,7 @@ struct PulseTrace {
     bool valid = false;
     bool secondTimingOk = false;
     bool minuteGap = false;
+    bool markerCandidate = false;
     bool sampled = false;
     uint8_t confidence = 0;
     uint8_t secondIndex = 255;
@@ -96,7 +97,7 @@ public:
     SignalMode signalMode() const { return _mode; }
 
     void processPulse(const RawPulse &pulse);
-    void processSampledSymbol(uint8_t secondIndex, int8_t bit, uint8_t confidence, bool minuteMarker);
+    void processSampledSymbol(uint8_t secondIndex, int8_t bit, uint8_t confidence, bool minuteMarker, bool markerCandidate);
     const DecoderStats &stats() const { return _stats; }
     const DCFDateTime &decodedTime() const { return _decoded; }
 
@@ -151,7 +152,7 @@ private:
     int softClassifyPulse(uint32_t widthUs, uint8_t &confidence) const;
     void recordPulseTrace(const RawPulse &pulse, int bit, bool valid,
                           bool secondTimingOk, bool minuteGap);
-    void recordSampledTrace(uint8_t secondIndex, int8_t bit, uint8_t confidence, bool minuteMarker);
+    void recordSampledTrace(uint8_t secondIndex, int8_t bit, uint8_t confidence, bool minuteMarker, bool markerCandidate);
     void finalizeFrame(uint32_t newMinuteStartUs);
     bool decodeFrame(DCFDateTime &out);
     bool decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidence);
