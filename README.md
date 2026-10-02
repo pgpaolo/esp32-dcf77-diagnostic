@@ -4,6 +4,8 @@
 
 È disponibile il profilo `hw364a`, con OLED SSD1306 128x64, tre pagine automatiche
 e portale Wi-Fi di diagnostica. Compilazione: `pio run -e hw364a`.
+Il profilo HW364A avvia ora il [decoder MSF UK a 60 kHz](docs/MSF_UK.md),
+con ora GMT/BST, bit A/B e conferma di due minuti; DCF77 e RAW restano selezionabili.
 Il portale permette anche [registrazione grezza di 3 minuti e prova con Wi-Fi/OLED spenti](docs/RAW_RECORDING.md), con replay e confronto offline con Udo Klein.
 È disponibile una [scansione offline DCF77/MSF](docs/DUAL_BAND_SCAN.md) per confrontare registrazioni con SEL LOW/HIGH e verificare entrambe le polarità, marcatori, parità e data.
 Collegarsi alla rete aperta `DCF77-HW364A-xxxxxx` e aprire http://192.168.4.1 .

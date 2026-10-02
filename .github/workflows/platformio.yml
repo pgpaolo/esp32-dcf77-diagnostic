@@ -20,8 +20,12 @@ jobs:
         run: python tools/tests/time_signal_scan_test.py
       - name: Test production DCF77 sampler and decoder
         run: |
-          g++ -std=c++17 -O1 -g -fsanitize=address,undefined -DESP8266 -Itools/tests -Iinclude tools/tests/decoder_regression.cpp src/dcf77_decoder.cpp src/raw_recording.cpp -o /tmp/dcf77-tests
+          g++ -std=c++17 -O1 -g -fsanitize=address,undefined -DESP8266 -Itools/tests -Iinclude tools/tests/decoder_regression.cpp src/dcf77_decoder.cpp src/msf_decoder.cpp src/raw_recording.cpp -o /tmp/dcf77-tests
           /tmp/dcf77-tests
+      - name: Test production MSF decoder
+        run: |
+          g++ -std=c++17 -O1 -g -fsanitize=address,undefined -Itools/tests -Iinclude tools/tests/msf_regression.cpp src/dcf77_decoder.cpp src/msf_decoder.cpp -o /tmp/msf-tests
+          /tmp/msf-tests
       - name: Build generic DCF77 profile
         run: pio run -e ttgo-t-display
       - name: Build dual 60-77.5 kHz profile

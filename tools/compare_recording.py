@@ -41,7 +41,7 @@ def compare(path, udo_dir=None, compiler="g++"):
         project=scratch/"project"
         subprocess.run([compiler,"-std=c++17","-O2","-DESP8266",
             "-I"+str(ROOT/"tools/tests"),"-I"+str(ROOT/"include"),
-            str(ROOT/"tools/replay_dcf77.cpp"),str(ROOT/"src/dcf77_decoder.cpp"),
+            str(ROOT/"tools/replay_dcf77.cpp"),str(ROOT/"src/dcf77_decoder.cpp"),str(ROOT/"src/msf_decoder.cpp"),
             str(ROOT/"src/raw_recording.cpp"),"-o",str(project)],check=True)
         results=[json.loads(subprocess.check_output([str(project),str(data)]))]
         if udo_dir:

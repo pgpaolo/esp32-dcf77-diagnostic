@@ -275,6 +275,12 @@ void loop() {
 
 #if defined(ESP8266)
     sampledDcfPoll();
+    static uint32_t msfWindowUs = UINT32_MAX;
+    SampledDcfSnapshot msfWindow; sampledDcfSnapshot(msfWindow);
+    if (decoder.signalMode()==SignalMode::MSF_60KHZ && msfWindow.ready && msfWindow.windowStartUs!=msfWindowUs) {
+        msfWindowUs=msfWindow.windowStartUs;
+        decoder.processMsfWindow(msfWindow.bins,msfWindow.windowStartUs);
+    }
 
     // Drain the raw edge queue. In DCF77 mode it is diagnostic only: the
     // decoder is driven by the timer-sampled phase detector below.
@@ -313,7 +319,7 @@ void loop() {
     int analogRaw = -1;
     if (DCF77_ANALOG_ENABLED) analogRaw = analogRead(PIN_DCF77_ANALOG);
 #if defined(ESP8266)
-    const char *displayMode = decoder.signalMode() == SignalMode::DCF77 ? "DCF77 TEST" : "RAW 60k TEST";
+    const char *displayMode = decoder.signalMode() == SignalMode::DCF77 ? "DCF77 TEST" : decoder.signalMode()==SignalMode::MSF_60KHZ ? "MSF UK 60k" : "RAW 60k TEST";
     ui.draw(decoder, analogRaw, displayMode, receiver.ready());
 #else
     ui.draw(decoder, analogRaw, receiver.bandLabel(), receiver.ready());
@@ -327,7 +333,7 @@ void loop() {
         decoder.setSignalMode(requestedMode);
         clearPulseCapture();
         Serial.printf("MASO decoder mode changed: %s\n",
-                      requestedMode == SignalMode::DCF77 ? "DCF77 77.5 kHz" : "RAW 60 kHz");
+                      requestedMode == SignalMode::DCF77 ? "DCF77 77.5 kHz" : requestedMode==SignalMode::MSF_60KHZ ? "MSF UK 60 kHz" : "RAW 60 kHz");
     }
 
     const bool requestedPolarity = portalDcfActiveLow();

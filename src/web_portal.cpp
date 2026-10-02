@@ -21,7 +21,7 @@ constexpr uint32_t PON_START_HIGH_MS = 3000;
 enum class PinDriveMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
 PinDriveMode selMode = PinDriveMode::FLOATING;
 PinDriveMode ponMode = PinDriveMode::LOW_LEVEL;
-SignalMode selectedSignalMode = SignalMode::DCF77;
+SignalMode selectedSignalMode = SignalMode::MSF_60KHZ;
 bool recordBusy = false, recordQuiet = false, radioPaused = false, recordCancelled = false;
 uint8_t recordStage = 0;
 uint32_t recordStageMs = 0, recordStartedMs = 0;
@@ -62,8 +62,8 @@ void startRecording() {
     if (rejectDuringRecording()) return;
     const String mode = server.arg("mode");
     if ((mode != "normal" && mode != "quiet") || ponStartActive ||
-        selectedSignalMode != SignalMode::DCF77) {
-        server.send(400,"application/json","{\"ok\":false,\"message\":\"Scegli normal/quiet in DCF77 e attendi la fine di START PON\"}"); return;
+        selectedSignalMode == SignalMode::RAW_60KHZ) {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Scegli normal/quiet in DCF77 o MSF e attendi la fine di START PON\"}"); return;
     }
     // Fail before shutting down the network; leave a reserve for HTTP/decoder.
     if ((!rawRecordData() && (ESP.getFreeHeap() < RAW_RECORD_BYTES + 9000 ||
@@ -193,7 +193,7 @@ String jsonEscape(const String &value) {
 }
 
 const char page[] PROGMEM = R"HTML(<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DCF77 HW-364A</title>
+<title>DCF77 / MSF HW-364A</title>
 <style>
 body{font:16px system-ui;background:#10202d;color:#eaf3fa;max-width:900px;margin:auto;padding:20px}
 h1{font-size:24px}h2{margin-top:28px}#clock{font-size:40px}
@@ -210,7 +210,7 @@ th,td{padding:8px 10px;border-bottom:1px solid #2b4b5e;text-align:right}
 th:first-child,td:first-child{text-align:left}
 .good{color:#8fe3a1}.bad{color:#ff9a9a}.neutral{color:#ffd580}
 </style>
-<h1>DCF77 · HW-364A</h1>
+<h1>DCF77 / MSF · HW-364A</h1>
 <div id="clock">--:--:--</div><p id="date">Attesa ricezione</p><p id="status">Connessione…</p>
 
 <div class="card">
@@ -243,6 +243,7 @@ th:first-child,td:first-child{text-align:left}
 <p><b>Decoder / analizzatore</b></p>
 <div class="row">
 <div><button type="button" onclick="setDecoder('dcf77')">DCF77 · 77,5 kHz</button></div>
+<div><button type="button" onclick="setDecoder('msf60')">MSF UK · 60 kHz</button></div>
 <div><button type="button" onclick="setDecoder('raw60')">RAW · 60 kHz</button></div>
 </div>
 <p class="muted">SEL e decoder sono indipendenti: questo evita di assumere LOW=77,5 kHz o HIGH=60 kHz finché il MASO-S-R1 non è identificato con certezza.</p>
@@ -284,12 +285,12 @@ th:first-child,td:first-child{text-align:left}
 <a href="/api/recording/download" download>Scarica registrazione OUT</a>
 
 <h2>Scope DCF77 · 1 secondo</h2>
-<p class="muted">Campionamento hardware di OUT a 1 kHz, indipendente da Wi-Fi/web/OLED. 100 celle da 10 ms: "-" = inattivo, 1..9 = attività parziale, X = attivo per tutta la cella. La stessa acquisizione alimenta il decoder DCF77 principale.</p>
+<p class="muted">Campionamento hardware di OUT a 1 kHz, indipendente da Wi-Fi/web/OLED. 100 celle da 10 ms: "-" = inattivo, 1..9 = attività parziale, X = attivo per tutta la cella. La stessa acquisizione alimenta il decoder DCF77 o MSF selezionato.</p>
 <pre id="scopeLine">Attesa primo secondo completo…</pre>
 <p id="scopeInfo" class="muted"></p>
 
 <h2>Monitor simboli / impulsi</h2>
-<p class="muted">In modalità DCF77 mostra i simboli prodotti dal decoder campionato (secondo, bit e confidenza). In RAW 60 kHz continua a mostrare gli impulsi grezzi.</p>
+<p class="muted">In modalità DCF77 mostra i simboli prodotti dal decoder campionato (secondo, bit e confidenza). In MSF mostra il bit A e il marker MIN; i bit A/B sono nelle metriche. In RAW 60 kHz mostra gli impulsi grezzi.</p>
 <table>
 <thead><tr><th>Età</th><th>Sorgente</th><th>Secondo</th><th>Impulso ms</th><th>Periodo ms</th><th>Bit</th><th>Conf.</th><th>Timing</th><th>Frame</th></tr></thead>
 <tbody id="pulseRows"><tr><td colspan="6">Attesa impulsi…</td></tr></tbody>
@@ -322,7 +323,7 @@ async function updateRecord(){
   }catch(e){el.textContent='Dispositivo non raggiungibile: attendere il ripristino o usare 192.168.4.1'}
 }
 setInterval(updateRecord,2000);updateRecord();
-const labels={acquisitionState:'Stato acquisizione',acquisitionConfidence:'Confidenza acquisizione (%)',fieldConfidence:'Confidenza campi BCD (%)',predictionMatch:'Coerenza predittiva (%)',sampledSymbols:'Simboli campionati',candidateMinutes:'Minuti coerenti',recoveredBits:'Bit recuperati',uncertainBits:'Bit incerti',quality:'Qualità temporale (%)',minuteSynced:'Sincronizzazione minuto',minuteMarkers:'Marker minuto rilevati',frameBitCount:'Posizione frame',lastBit:'Ultimo bit',pulseMs:'Impulso (ms)',periodMs:'Periodo (ms)',jitterMs:'Jitter (ms)',rmsMs:'Jitter RMS (ms)',validPulses:'Impulsi validi',invalidPulses:'Impulsi invalidi',validFrames:'Frame validi',invalidFrames:'Frame invalidi',parityErrors:'Errori parità',timingErrors:'Errori temporali',glitches:'Glitch',frameAgeSeconds:'Età ultimo frame (s)',ppsUs:'Offset PPS (µs)',freeHeap:'RAM libera (byte)'};
+const labels={msfBitA:'MSF ultimo bit A',msfBitB:'MSF ultimo bit B',acquisitionState:'Stato acquisizione',acquisitionConfidence:'Confidenza acquisizione (%)',fieldConfidence:'Confidenza campi BCD (%)',predictionMatch:'Coerenza predittiva (%)',sampledSymbols:'Simboli campionati',candidateMinutes:'Minuti coerenti',recoveredBits:'Bit recuperati',uncertainBits:'Bit incerti',quality:'Qualità temporale (%)',minuteSynced:'Sincronizzazione minuto',minuteMarkers:'Marker minuto rilevati',frameBitCount:'Posizione frame',lastBit:'Ultimo bit',pulseMs:'Impulso (ms)',periodMs:'Periodo (ms)',jitterMs:'Jitter (ms)',rmsMs:'Jitter RMS (ms)',validPulses:'Impulsi validi',invalidPulses:'Impulsi invalidi',validFrames:'Frame validi',invalidFrames:'Frame invalidi',parityErrors:'Errori parità',timingErrors:'Errori temporali',glitches:'Glitch',frameAgeSeconds:'Età ultimo frame (s)',ppsUs:'Offset PPS (µs)',freeHeap:'RAM libera (byte)'};
 
 async function update(){
   if(document.hidden||Date.now()<quietUntil)return;
@@ -449,6 +450,7 @@ async function updateScope(){
     if(!r.ok)throw Error();
     const d=await r.json();
     document.getElementById('scopeLine').textContent=d.ready?d.line:'Attesa primo secondo completo…';
+    if(d.protocol==='MSF'){document.getElementById('scopeInfo').textContent='MSF 60 kHz · '+d.samples+' campioni · fase '+(d.phaseBin*10)+' ms · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · '+d.lastSymbol+' · drop '+d.droppedWindows;return}
     document.getElementById('scopeInfo').textContent=d.ready
       ? ('attivo '+d.activeMs+' ms/finestra · campioni '+d.samples+' · durata '+d.windowDurationMs+' ms · frequenza '+d.sampleRateHz+' Hz · fase '+d.phaseBin+'0 ms · qualità fase '+d.phaseQuality+'% · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · simbolo '+d.lastSymbol+' ('+d.lastConfidence+'%) · secondo '+(d.secondLocked?d.secondIndex:'?')+' · qualità minuto '+d.secondQuality+' · candidato59 '+d.minuteBestCandidate+' · score '+d.minuteScoreMax+'/'+d.minuteScoreNoise+' · delta '+d.secondQuality+'/'+d.minuteLockThreshold+' · RAW fronti '+d.rawRisingEdges+' · blocchi≥30ms '+d.rawLongBlocks+' · max blocco '+d.rawLongestBlockMs+' ms · filtrati '+d.filteredRisingEdges+' fronti / '+d.filteredLongBlocks+' blocchi / max '+d.filteredLongestBlockMs+' ms · finestre scartate '+d.rejectedWindows+' · SYNC? grezzi '+d.rawSyncCandidates+' · confermati '+d.syncCandidates+' · '+(d.secondLocked?'MINUTE LOCK':'accumulo minuto')+' · drop '+d.droppedWindows)
       : '';
@@ -544,12 +546,12 @@ void status() {
     json += (snap.rawTransitions && snap.rawTransitionAgeMs < 3500) ? "true" : "false";
     json += ",\"decodedSignalRecent\":";
     json += (s.totalPulses && millis()-lastPulseMs < 3500) ? "true" : "false";
-    json += ",\"phaseLocked\":"; json += snap.phaseLocked ? "true" : "false";
+    json += ",\"phaseLocked\":"; json += (selectedSignalMode==SignalMode::MSF_60KHZ ? s.msfPhaseLocked : snap.phaseLocked) ? "true" : "false";
     json += ",\"secondLocked\":"; json += snap.secondLocked ? "true" : "false";
     char time[16] = "", date[32] = "";
     if (clock) {
         snprintf(time,sizeof(time),"%02d:%02d:%02d",dt.hour,dt.minute,dt.second);
-        snprintf(date,sizeof(date),"%02d/%02d/%04d %s",dt.day,dt.month,dt.year,dt.cest?"CEST":"CET");
+        snprintf(date,sizeof(date),"%02d/%02d/%04d %s",dt.day,dt.month,dt.year,selectedSignalMode==SignalMode::MSF_60KHZ ? (dt.cest?"BST":"GMT") : (dt.cest?"CEST":"CET"));
     }
     json += ",\"time\":\""; json += time; json += "\",\"date\":\""; json += date; json += "\"";
     auto number = [&](const char *key, double value) { json += ",\""; json += key; json += "\":"; json += String(value,3); };
@@ -558,12 +560,14 @@ void status() {
     number("fieldConfidence",s.fieldConfidence);
     number("predictionMatch",s.predictionMatch);
     number("sampledSymbols",s.sampledSymbols);
+    json += ",\"protocol\":\""; json += selectedSignalMode==SignalMode::MSF_60KHZ ? "MSF" : selectedSignalMode==SignalMode::DCF77 ? "DCF77" : "RAW"; json += "\"";
+    number("msfBitA",s.msfBitA); number("msfBitB",s.msfBitB); number("msfPhaseBin",s.msfPhaseBin);
     number("rawTransitions",snap.rawTransitions);
     number("candidateMinutes",s.candidateMinutes);
     number("recoveredBits",s.recoveredBits);
     number("uncertainBits",s.uncertainBits);
     const bool qualityRecent = s.totalPulses && millis()-lastPulseMs < 3500 &&
-        (selectedSignalMode != SignalMode::DCF77 || snap.phaseLocked);
+        (selectedSignalMode==SignalMode::MSF_60KHZ ? s.msfPhaseLocked : selectedSignalMode != SignalMode::DCF77 || snap.phaseLocked);
     number("historicalQuality",s.quality);
     json += ",\"quality\":"; json += qualityRecent ? String(s.quality) : String("null");
     json += ",\"qualityRecent\":"; json += qualityRecent ? "true" : "false";
@@ -593,10 +597,12 @@ void status() {
 void scopeStatus() {
     SampledDcfSnapshot snap;
     sampledDcfSnapshot(snap);
+    const bool msf=selectedSignalMode==SignalMode::MSF_60KHZ && currentDecoder;
+    const DecoderStats *msfStats=msf ? &currentDecoder->stats() : nullptr;
 
     String json;
     json.reserve(420);
-    json = "{\"ready\":";
+    json = "{\"protocol\":\""; json += msf ? "MSF" : "DCF77"; json += "\",\"ready\":";
     json += snap.ready ? "true" : "false";
     json += ",\"line\":\"";
     if (snap.ready) {
@@ -613,13 +619,14 @@ void scopeStatus() {
     json += ",\"coverage\":";
     json += String(snap.samples >= 1000 ? 100 : (snap.samples * 100UL) / 1000UL);
     json += ",\"phaseBin\":";
-    json += String(snap.phaseBin);
+    json += String(msf ? msfStats->msfPhaseBin : snap.phaseBin);
     json += ",\"phaseQuality\":";
-    json += String(snap.phaseQuality);
+    json += String(msf ? msfStats->quality : snap.phaseQuality);
     json += ",\"phaseLocked\":";
-    json += snap.phaseLocked ? "true" : "false";
+    json += (msf ? msfStats->msfPhaseLocked : snap.phaseLocked) ? "true" : "false";
     json += ",\"lastSymbol\":\"";
-    if (snap.lastMinuteMarker) json += "MIN";
+    if(msf) { json += "A"; json += String(msfStats->msfBitA); json += "/B"; json += String(msfStats->msfBitB); }
+    else if (snap.lastMinuteMarker) json += "MIN";
     else if (snap.lastBit == 0) json += "0";
     else if (snap.lastBit == 1) json += "1";
     else json += "?";
@@ -714,7 +721,7 @@ void receiverStatus() {
     json = "{\"sel\":\"";
     json += modeLabel(selMode);
     json += "\",\"decoderMode\":\"";
-    json += selectedSignalMode == SignalMode::DCF77 ? "DCF77 77.5 kHz" : "RAW 60 kHz";
+    json += selectedSignalMode == SignalMode::DCF77 ? "DCF77 77.5 kHz" : selectedSignalMode==SignalMode::MSF_60KHZ ? "MSF UK 60 kHz" : "RAW 60 kHz";
     json += "\",\"selGpio\":";
     json += String(PIN_RX_BAND);
     json += ",\"pon\":\"";
@@ -763,6 +770,7 @@ void setDecoderMode() {
     const String mode = server.arg("mode");
     if (mode == "dcf77") selectedSignalMode = SignalMode::DCF77;
     else if (mode == "raw60") selectedSignalMode = SignalMode::RAW_60KHZ;
+    else if (mode == "msf60") selectedSignalMode = SignalMode::MSF_60KHZ;
     else {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"Decoder non valido\"}");
         return;
@@ -771,6 +779,8 @@ void setDecoderMode() {
     server.send(200,"application/json",
         selectedSignalMode == SignalMode::DCF77
           ? "{\"ok\":true,\"message\":\"Decoder DCF77 77,5 kHz selezionato\"}"
+          : selectedSignalMode==SignalMode::MSF_60KHZ
+          ? "{\"ok\":true,\"message\":\"Decoder MSF UK 60 kHz selezionato; SEL va verificato separatamente\"}"
           : "{\"ok\":true,\"message\":\"Analizzatore RAW 60 kHz selezionato\"}");
 }
 
@@ -923,7 +933,7 @@ void portalBegin() {
     selMode = PinDriveMode::FLOATING;
     ponMode = PinDriveMode::LOW_LEVEL;
     outPullupEnabled = false;
-    selectedSignalMode = SignalMode::DCF77;
+    selectedSignalMode = SignalMode::MSF_60KHZ;
     dcfActiveLowSelected = DCF77_ACTIVE_LOW;
     resetScope();
 

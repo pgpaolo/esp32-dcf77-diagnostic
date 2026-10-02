@@ -20,6 +20,7 @@ struct SampledDcfSnapshot {
     uint8_t bins[100] = {};
     uint16_t samples = 0;
     uint32_t windowDurationUs = 0;
+    uint32_t windowStartUs = 0;
     uint16_t activeMs = 0;
     uint8_t phaseBin = 0;
     uint8_t phaseQuality = 0;

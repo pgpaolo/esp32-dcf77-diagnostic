@@ -8,6 +8,7 @@ DCF77Decoder::DCF77Decoder() {
 }
 
 void DCF77Decoder::reset() {
+    resetMsf();
     _stats = DecoderStats{};
     _decoded = DCFDateTime{};
     _frameCount = 0;

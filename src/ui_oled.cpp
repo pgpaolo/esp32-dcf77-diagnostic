@@ -36,17 +36,17 @@ void AnalyzerUI::draw(const DCF77Decoder &decoder, int, const char *bandLabel, b
     _oled.setTextColor(SSD1306_WHITE);
     _oled.setTextSize(1);
     _oled.setCursor(0,0);
-    _oled.printf("DCF77  %s  %u/3\n", ready ? "RX" : "WAIT", _page+1);
+    _oled.printf("%s  %s  %u/3\n", decoder.signalMode()==SignalMode::MSF_60KHZ?"MSF UK":"DCF77", ready ? "RX" : "WAIT", _page+1);
     if (_page == 0) {
         const bool clock = decoder.getRunningClock(dt);
         _oled.setTextSize(2);
         if (clock) _oled.printf("%02d:%02d:%02d\n",dt.hour,dt.minute,dt.second);
         else _oled.println("--:--:--");
         _oled.setTextSize(1);
-        if (clock) _oled.printf("%02d/%02d/%04d %s\n",dt.day,dt.month,dt.year,dt.cest?"CEST":"CET");
+        if (clock) _oled.printf("%02d/%02d/%04d %s\n",dt.day,dt.month,dt.year,decoder.signalMode()==SignalMode::MSF_60KHZ ? (dt.cest?"BST":"GMT") : (dt.cest?"CEST":"CET"));
         else _oled.println("Attesa frame valido");
         SampledDcfSnapshot snap; sampledDcfSnapshot(snap);
-        if (snap.phaseLocked) _oled.printf("Confidenza: %u%%\n",s.quality);
+        if (decoder.signalMode()==SignalMode::MSF_60KHZ ? s.msfPhaseLocked : snap.phaseLocked) _oled.printf("Confidenza: %u%%\n",s.quality);
         else _oled.println("Confidenza: -- (SEARCH)");
         if (s.validFrames) _oled.printf("Ultimo frame: %lus\n",(unsigned long)((millis()-s.lastValidFrameMs)/1000));
         else _oled.println("Nessun frame valido");
@@ -57,7 +57,8 @@ void AnalyzerUI::draw(const DCF77Decoder &decoder, int, const char *bandLabel, b
         _oled.printf("Periodo: %.1f ms\n",s.lastPeriodUs/1000.0f);
         _oled.printf("Jitter: %.2f ms\n",s.lastJitterUs/1000.0f);
         _oled.printf("RMS: %.2f ms\n",s.jitterRmsUs/1000.0f);
-        _oled.printf("Bit %u / valore %d",s.frameBitCount,s.lastBit);
+        if(decoder.signalMode()==SignalMode::MSF_60KHZ) _oled.printf("Sec %u A:%d B:%d",s.frameBitCount,s.msfBitA,s.msfBitB);
+        else _oled.printf("Bit %u / valore %d",s.frameBitCount,s.lastBit);
     } else {
         _oled.printf("Frame OK: %lu\n",(unsigned long)s.validFrames);
         _oled.printf("Frame KO: %lu\n",(unsigned long)s.invalidFrames);

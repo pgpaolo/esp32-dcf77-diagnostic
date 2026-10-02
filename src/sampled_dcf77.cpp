@@ -788,6 +788,7 @@ void sampledDcfPoll() {
     memcpy(snapshotState.bins, current, BINS);
     snapshotState.samples = actualSamples;
     snapshotState.windowDurationUs = durationUs;
+    snapshotState.windowStartUs = currentStartUs;
     snapshotState.activeMs = activeMs;
     snapshotState.secondsObserved++;
     snapshotState.droppedWindows = drops;

@@ -4,7 +4,8 @@
 
 enum class SignalMode : uint8_t {
     DCF77,
-    RAW_60KHZ
+    RAW_60KHZ,
+    MSF_60KHZ
 };
 
 struct RawPulse {
@@ -86,6 +87,9 @@ struct DecoderStats {
     uint8_t fieldConfidence = 0;
     uint8_t predictionMatch = 0;
     uint32_t sampledSymbols = 0;
+    bool msfPhaseLocked = false;
+    uint8_t msfPhaseBin = 0;
+    int8_t msfBitA = -1, msfBitB = -1;
 };
 
 class DCF77Decoder {
@@ -111,6 +115,7 @@ public:
 
     uint8_t recentPulseCount() const { return _pulseTraceCount; }
     bool recentPulse(uint8_t newestIndex, PulseTrace &out) const;
+    void processMsfWindow(const uint8_t bins[100], uint32_t startUs);
 
 private:
     SignalMode _mode = SignalMode::DCF77;
@@ -120,7 +125,7 @@ private:
     int8_t _frame[61];
     uint8_t _frameConfidence[61];
     uint8_t _frameCount = 0;
-    int8_t _lastFrame[59];
+    int8_t _lastFrame[60];
     uint8_t _lastFrameCount = 0;
 
     float _qualityHistory[60];
@@ -148,6 +153,14 @@ private:
     bool _candidateValid = false;
     uint8_t _candidateStreak = 0;
     uint8_t _candidateMisses = 0;
+    uint8_t _msfPrevious[100] = {};
+    uint16_t _msfScores[100] = {};
+    int8_t _msfB[60] = {};
+    bool _msfHavePrevious = false, _msfCollecting = false;
+    uint32_t _msfPreviousUs = 0, _msfCandidateUs = 0;
+    uint8_t _msfStable = 0, _msfMisses = 0;
+    void resetMsf();
+    bool decodeMsfFrame(DCFDateTime &out);
 
     int classifyPulse(uint32_t widthUs) const;
     int softClassifyPulse(uint32_t widthUs, uint8_t &confidence) const;
