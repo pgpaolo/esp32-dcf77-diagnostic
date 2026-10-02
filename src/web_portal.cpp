@@ -122,15 +122,22 @@ th:first-child,td:first-child{text-align:left}
 
 <div class="card">
 <h2 style="margin-top:0">Ricevitore MASO-S-R1</h2>
-<p class="muted">Pinout MASO-S-R1 confermato dalla serigrafia PCB: <b>SEL → D2/GPIO4</b>, <b>OUT → D7/GPIO13</b>, <b>PON → D1/GPIO5</b>. I livelli logici di SEL/PON restano selezionabili per la diagnostica.</p>
+<p class="muted">La serigrafia PCB riporta <b>SEL · OUT · PON · GND · VDD</b>. Poiché SEL/OUT risultano fisicamente ambigui sul connettore, il portale li tratta come segnali da verificare e non associa automaticamente SEL a una frequenza.</p>
 <div id="receiverState" class="warn">Verifica stato ricevitore…</div>
 
-<p><b>Banda / SEL · D2 / GPIO4</b></p>
+<p><b>SEL · D2 / GPIO4</b></p>
 <div class="row">
-<div><button type="button" onclick="setBand('eu')">EU · 77,5 kHz (SEL LOW)</button></div>
-<div><button type="button" onclick="setBand('uk')">UK · 60 kHz (SEL HIGH)</button></div>
-<div><button type="button" onclick="setBand('float')">SEL FLOAT</button></div>
+<div><button type="button" onclick="setReceiverPin('sel','float')">SEL FLOAT</button></div>
+<div><button type="button" onclick="setReceiverPin('sel','low')">SEL LOW</button></div>
+<div><button type="button" onclick="setReceiverPin('sel','high')">SEL HIGH</button></div>
 </div>
+
+<p><b>Decoder / analizzatore</b></p>
+<div class="row">
+<div><button type="button" onclick="setDecoder('dcf77')">DCF77 · 77,5 kHz</button></div>
+<div><button type="button" onclick="setDecoder('raw60')">RAW · 60 kHz</button></div>
+</div>
+<p class="muted">SEL e decoder sono indipendenti: questo evita di assumere LOW=77,5 kHz o HIGH=60 kHz finché il MASO-S-R1 non è identificato con certezza.</p>
 
 <p><b>PON / ENABLE · D1 / GPIO5</b></p>
 <div class="row">
@@ -158,8 +165,8 @@ th:first-child,td:first-child{text-align:left}
 
 <dl id="metrics"></dl>
 
-<h2>Monitor impulsi DCF77</h2>
-<p class="muted">Ultimi impulsi ricevuti, dal più recente. Il frame avanza solo sugli eventi con timing DCF77 valido (~1 s, oppure marker minuto ~2 s). Gli eventi fuori timing restano visibili qui ma non spostano più la posizione del frame.</p>
+<h2>Monitor impulsi</h2>
+<p class="muted">Ultimi impulsi ricevuti, dal più recente. In modalità DCF77 il frame avanza solo sugli eventi con timing valido (~1 s, marker minuto ~2 s). In modalità RAW 60 kHz il monitor non assegna bit DCF77.</p>
 <table>
 <thead><tr><th>Età</th><th>Impulso ms</th><th>Periodo ms</th><th>Bit</th><th>Timing</th><th>Frame</th></tr></thead>
 <tbody id="pulseRows"><tr><td colspan="6">Attesa impulsi…</td></tr></tbody>
@@ -212,7 +219,8 @@ async function updateReceiver(){
     const d=await r.json();
     const el=document.getElementById('receiverState');
     el.className=(d.sel==='FLOAT'||d.pon==='FLOAT')?'warn':'ok';
-    el.textContent='BANDA '+d.band+' | SEL '+d.sel+' · GPIO '+d.selGpio+
+    el.textContent='SEL '+d.sel+' · GPIO '+d.selGpio+
+      ' | DECODER '+d.decoderMode+
       ' | PON '+d.pon+' · GPIO '+d.ponGpio+
       ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+' ('+d.outMode+', ACTIVE '+d.polarity+')'+
       ' | eventi '+d.eventsPerSecond+'/s'+
@@ -223,16 +231,16 @@ async function updateReceiver(){
   }
 }
 
-async function setBand(mode){
+async function setDecoder(mode){
   const msg=document.getElementById('receiverMsg');
-  msg.textContent='Impostazione banda…';
+  msg.textContent='Impostazione decoder…';
   try{
     const body=new URLSearchParams({mode});
-    const r=await fetch('/api/receiver/band',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const r=await fetch('/api/decoder',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
     const d=await r.json();
-    msg.textContent=d.message||'Banda aggiornata';
+    msg.textContent=d.message||'Decoder aggiornato';
     updateReceiver();
-  }catch(e){msg.textContent='Errore durante la modifica della banda'}
+  }catch(e){msg.textContent='Errore durante la modifica del decoder'}
 }
 
 async function setReceiverPin(pin,mode){
@@ -428,12 +436,10 @@ void pulseStatus() {
 void receiverStatus() {
     String json;
     json.reserve(320);
-    json = "{\"band\":\"";
-    if (selMode == PinDriveMode::LOW_LEVEL) json += "EU 77.5 kHz";
-    else if (selMode == PinDriveMode::HIGH_LEVEL) json += "UK 60 kHz";
-    else json += "FLOAT";
-    json += "\",\"sel\":\"";
+    json = "{\"sel\":\"";
     json += modeLabel(selMode);
+    json += "\",\"decoderMode\":\"";
+    json += selectedSignalMode == SignalMode::DCF77 ? "DCF77 77.5 kHz" : "RAW 60 kHz";
     json += "\",\"selGpio\":";
     json += String(PIN_RX_BAND);
     json += ",\"pon\":\"";
@@ -470,32 +476,23 @@ bool parseDriveMode(const String &mode, PinDriveMode &out) {
     return true;
 }
 
-void setBandMode() {
+void setDecoderMode() {
     if (!server.hasArg("mode")) {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
         return;
     }
     const String mode = server.arg("mode");
-    if (mode == "eu") {
-        applySelMode(PinDriveMode::LOW_LEVEL);
-        selectedSignalMode = SignalMode::DCF77;
-    } else if (mode == "uk") {
-        applySelMode(PinDriveMode::HIGH_LEVEL);
-        selectedSignalMode = SignalMode::RAW_60KHZ;
-    } else if (mode == "float") {
-        applySelMode(PinDriveMode::FLOATING);
-        selectedSignalMode = SignalMode::DCF77;
-    } else {
-        server.send(400,"application/json","{\"ok\":false,\"message\":\"Banda non valida\"}");
+    if (mode == "dcf77") selectedSignalMode = SignalMode::DCF77;
+    else if (mode == "raw60") selectedSignalMode = SignalMode::RAW_60KHZ;
+    else {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Decoder non valido\"}");
         return;
     }
     resetReceiverDiagnostics();
-    String msg = "{\"ok\":true,\"message\":\"";
-    if (mode == "eu") msg += "EU 77,5 kHz / SEL LOW / decoder DCF77";
-    else if (mode == "uk") msg += "UK 60 kHz / SEL HIGH / monitor RAW 60 kHz";
-    else msg += "SEL FLOAT / decoder DCF77";
-    msg += "\"}";
-    server.send(200,"application/json",msg);
+    server.send(200,"application/json",
+        selectedSignalMode == SignalMode::DCF77
+          ? "{\"ok\":true,\"message\":\"Decoder DCF77 77,5 kHz selezionato\"}"
+          : "{\"ok\":true,\"message\":\"Analizzatore RAW 60 kHz selezionato\"}");
 }
 
 void setReceiverControl() {
@@ -641,6 +638,8 @@ void portalBegin() {
     selMode = PinDriveMode::FLOATING;
     ponMode = PinDriveMode::LOW_LEVEL;
     outPullupEnabled = false;
+    selectedSignalMode = SignalMode::DCF77;
+    dcfActiveLowSelected = DCF77_ACTIVE_LOW;
 
     WiFi.persistent(false);
     WiFi.mode(WIFI_AP_STA);
@@ -659,7 +658,7 @@ void portalBegin() {
     server.on("/api/status",HTTP_GET,status);
     server.on("/api/pulses",HTTP_GET,pulseStatus);
     server.on("/api/receiver",HTTP_GET,receiverStatus);
-    server.on("/api/receiver/band",HTTP_POST,setBandMode);
+    server.on("/api/decoder",HTTP_POST,setDecoderMode);
     server.on("/api/receiver/control",HTTP_POST,setReceiverControl);
     server.on("/api/receiver/out",HTTP_POST,setOutMode);
     server.on("/api/receiver/polarity",HTTP_POST,setPolarity);
