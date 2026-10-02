@@ -274,12 +274,10 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
         return;
     }
 
-    // First measure the complete second. A DCF77 sync mark is the absence of
-    // the normal 100/200 ms pulse, so a second with substantial activity must
-    // never be promoted to SYNC merely because our 200 ms window was offset.
-    uint16_t wholeSecondActivity = 0;
-    for (uint8_t i = 0; i < 100; ++i) wholeSecondActivity += combined[i];
-
+    // The hardware 1-second buffers are not aligned to the DCF77 second.
+    // Therefore a minute marker must NOT be detected from the activity of the
+    // whole raw buffer. Use only the phase-aligned pulse region below.
+    //
     // Udo-style two-half decision, but allow the MASO apparent edge to move
     // around the accumulated phase. Search +/-80 ms and keep the alignment
     // with the strongest first 100 ms half.
@@ -318,12 +316,14 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     e.minuteMarker = false;
     e.markerCandidate = false;
 
-    // Real sync candidate: require the WHOLE second to be nearly quiet.
-    // At 1 kHz the nominal marker can still contain a few noisy samples, but
-    // anything resembling a 100 ms pulse (e.g. ~100 active samples) is not sync.
-    const bool wholeSecondQuiet = wholeSecondActivity < 35;
+    // Real sync candidate: both phase-aligned 100 ms halves must be quiet.
+    // This is evaluated in DCF phase, not against the arbitrary hardware
+    // 1-second buffer boundary. The candidate is still provisional and must
+    // be confirmed by the following fixed DCF77 bit 0.
+    const uint8_t alignedActivity = bestFirstCount + bestSecondCount;
+    const bool alignedQuiet = alignedActivity <= 2;
 
-    if (wholeSecondQuiet) {
+    if (alignedQuiet) {
         e.bit = -1;
         e.pulseMs = 0;
         e.markerCandidate = true;
@@ -341,7 +341,7 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     // Confidence from the selected 100/200 ms pattern.
     int conf = 0;
     if (e.markerCandidate) {
-        conf = 100 - static_cast<int>(wholeSecondActivity) * 2;
+        conf = 100 - static_cast<int>(alignedActivity) * 20;
         if (conf < 20) conf = 20;
     } else if (e.bit == 0) {
         conf = static_cast<int>(bestFirstCount) * 10 -
