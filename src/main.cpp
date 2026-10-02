@@ -294,7 +294,8 @@ void loop() {
         decoder.processSampledSymbol(sampled.secondLocked ? sampled.secondIndex : 255,
                                      sampled.bit,
                                      sampled.confidence,
-                                     sampled.minuteMarker);
+                                     sampled.minuteMarker,
+                                     sampled.markerCandidate);
     }
 #else
     RawPulse p;
