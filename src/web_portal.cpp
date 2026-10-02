@@ -333,7 +333,7 @@ async function updateScope(){
     const d=await r.json();
     document.getElementById('scopeLine').textContent=d.ready?d.line:'Attesa primo secondo completo…';
     document.getElementById('scopeInfo').textContent=d.ready
-      ? ('attivo '+d.activeMs+' ms/s · campioni '+d.samples+'/1000 · copertura '+d.coverage+'% · fase '+d.phaseBin+'0 ms · qualità fase '+d.phaseQuality+'% · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · simbolo '+d.lastSymbol+' ('+d.lastConfidence+'%) · drop '+d.droppedWindows)
+      ? ('attivo '+d.activeMs+' ms/s · campioni '+d.samples+'/1000 · copertura '+d.coverage+'% · fase '+d.phaseBin+'0 ms · qualità fase '+d.phaseQuality+'% · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · simbolo '+d.lastSymbol+' ('+d.lastConfidence+'%) · secondo '+(d.secondLocked?d.secondIndex:'?')+' · qualità minuto '+d.secondQuality+' · '+(d.secondLocked?'MINUTE LOCK':'ricerca minuto')+' · drop '+d.droppedWindows)
       : '';
   }catch(e){
     document.getElementById('scopeLine').textContent='Errore lettura scope';
@@ -492,6 +492,12 @@ void scopeStatus() {
     json += String(snap.secondsObserved);
     json += ",\"droppedWindows\":";
     json += String(snap.droppedWindows);
+    json += ",\"secondIndex\":";
+    json += snap.secondLocked ? String(snap.secondIndex) : String("null");
+    json += ",\"secondQuality\":";
+    json += String(snap.secondQuality);
+    json += ",\"secondLocked\":";
+    json += snap.secondLocked ? "true" : "false";
     json += "}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",json);
