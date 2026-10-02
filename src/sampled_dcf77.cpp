@@ -32,6 +32,8 @@ uint8_t currentPhaseBin = 0;
 uint8_t currentPhaseQuality = 0;
 bool currentPhaseLocked = false;
 uint8_t phaseStableSeconds = 0;
+uint8_t phaseCandidateBin = 0;
+uint8_t phaseCandidateStable = 0;
 
 // 60-position minute phase accumulator. A candidate bin represents the raw
 // tick that would correspond to DCF second 59 (the missing-pulse marker).
@@ -102,16 +104,14 @@ void findPhase(const uint8_t combined[200]) {
 
     for (uint8_t candidate = 0; candidate < BINS; ++candidate) {
         const uint16_t base = candidate;
-        const uint16_t a = windowSignal(combined, base, 10);       // 0..100 ms
-        const uint16_t b = windowSignal(combined, base + 10, 10);  // 100..200 ms
-        const uint16_t n = windowSignal(combined, base + 25, 50);  // 250..750 ms
+        const uint16_t a = windowSignal(combined, base, 10);
+        const uint16_t b = windowSignal(combined, base + 10, 10);
+        const uint16_t n = windowSignal(combined, base + 25, 50);
 
         const int32_t instant =
             static_cast<int32_t>(2U * a + b) -
             static_cast<int32_t>(n / 2U);
 
-        // Long-memory integrator. Keep evidence across many seconds but do
-        // not let one noisy second move the detected phase abruptly.
         phaseScore[candidate] = (phaseScore[candidate] * 15 + instant * 16) / 16;
 
         if (phaseScore[candidate] > best) {
@@ -120,9 +120,6 @@ void findPhase(const uint8_t combined[200]) {
         }
     }
 
-    currentPhaseBin = bestIndex;
-
-    // Compare against a phase well outside the 100/200 ms useful pulse.
     const uint8_t noiseIndex = static_cast<uint8_t>((bestIndex + 20U) % BINS);
     const int32_t noise = phaseScore[noiseIndex];
     const int32_t separation = best > noise ? best - noise : 0;
@@ -131,15 +128,69 @@ void findPhase(const uint8_t combined[200]) {
     if (q > 100) q = 100;
     currentPhaseQuality = static_cast<uint8_t>(q);
 
-    if (separation >= 80 && best >= 120) {
-        if (phaseStableSeconds < 255) ++phaseStableSeconds;
-    } else if (separation < 30 || best < 60) {
-        phaseStableSeconds = 0;
-    } else if (phaseStableSeconds > 0) {
-        --phaseStableSeconds;
+    auto circularDistance = [](uint8_t a, uint8_t b) -> uint8_t {
+        int d = abs(static_cast<int>(a) - static_cast<int>(b));
+        if (d > 50) d = 100 - d;
+        return static_cast<uint8_t>(d);
+    };
+
+    if (!currentPhaseLocked) {
+        // Require the same phase neighbourhood for several consecutive seconds.
+        if (phaseCandidateStable == 0 || circularDistance(bestIndex, phaseCandidateBin) > 3) {
+            phaseCandidateBin = bestIndex;
+            phaseCandidateStable = 1;
+        } else {
+            if (phaseCandidateStable < 255) ++phaseCandidateStable;
+            // Slowly follow only within the same +/-30 ms neighbourhood.
+            phaseCandidateBin = static_cast<uint8_t>((phaseCandidateBin * 3U + bestIndex) / 4U);
+        }
+
+        if (separation >= 80 && best >= 120 && currentPhaseQuality >= 20) {
+            if (phaseStableSeconds < 255) ++phaseStableSeconds;
+        } else {
+            phaseStableSeconds = 0;
+        }
+
+        if (phaseStableSeconds >= 4 && phaseCandidateStable >= 4) {
+            currentPhaseBin = phaseCandidateBin;
+            currentPhaseLocked = true;
+        } else {
+            currentPhaseBin = bestIndex;
+        }
+        return;
     }
 
-    currentPhaseLocked = phaseStableSeconds >= 4;
+    // Once locked, do NOT chase a remote peak. Real DCF phase is stable.
+    // Permit only small +/-30 ms corrections.
+    const uint8_t distance = circularDistance(bestIndex, currentPhaseBin);
+
+    if (currentPhaseQuality < 15 || separation < 50 || best < 80) {
+        // A bad phase must become UNLOCKED quickly; never keep a stale LOCK
+        // for hundreds of seconds merely because the historical counter was high.
+        currentPhaseLocked = false;
+        phaseStableSeconds = 0;
+        phaseCandidateBin = bestIndex;
+        phaseCandidateStable = 1;
+        currentPhaseBin = bestIndex;
+        return;
+    }
+
+    if (distance <= 3) {
+        // Gentle one-bin tracking prevents jitter without freezing the clock.
+        if (distance > 0) {
+            int cur = currentPhaseBin;
+            int target = bestIndex;
+            int diff = target - cur;
+            if (diff > 50) diff -= 100;
+            if (diff < -50) diff += 100;
+            if (diff > 0) cur++;
+            else if (diff < 0) cur--;
+            if (cur < 0) cur += 100;
+            if (cur >= 100) cur -= 100;
+            currentPhaseBin = static_cast<uint8_t>(cur);
+        }
+    }
+    // A distant bestIndex is ignored while quality is still acceptable.
 }
 
 uint8_t wrap60(int v) {
@@ -428,6 +479,8 @@ void sampledDcfReset() {
     currentPhaseQuality = 0;
     currentPhaseLocked = false;
     phaseStableSeconds = 0;
+    phaseCandidateBin = 0;
+    phaseCandidateStable = 0;
     memset(minuteScore, 0, sizeof(minuteScore));
     rawSecondTick = 0;
     minuteBest = 0;
