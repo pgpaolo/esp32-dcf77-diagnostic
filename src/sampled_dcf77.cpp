@@ -316,6 +316,7 @@ uint8_t majorityActiveBins(const uint8_t combined[200], uint16_t start, uint8_t 
 
 void classifyPreviousSecond(const uint8_t combined[200]) {
     if (!currentPhaseLocked) {
+        pendingMarkerCandidate = false;
         snapshotState.lastBit = -1;
         snapshotState.lastMinuteMarker = false;
         snapshotState.lastConfidence = 0;
@@ -437,7 +438,6 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     snapshotState.secondQuality = e.secondQuality;
     snapshotState.secondIndex = e.secondIndex;
 
-    rawSecondTick = static_cast<uint8_t>((rawSecondTick + 1U) % 60U);
 }
 
 } // namespace
@@ -533,6 +533,11 @@ void sampledDcfPoll() {
         snapshotState.phaseLocked = currentPhaseLocked;
 
         classifyPreviousSecond(combined);
+
+        // The hardware window represents one real elapsed second regardless
+        // of phase-lock state. Keep the 60-second timebase monotonic even when
+        // bit classification is temporarily unavailable.
+        rawSecondTick = static_cast<uint8_t>((rawSecondTick + 1U) % 60U);
     }
 
     memcpy(previousWindow, current, BINS);
