@@ -42,10 +42,14 @@ constexpr uint8_t PIN_PPS = 33;
 // C-MAX exposes both TCO (positive) and TCON (inverted), so keep this
 // configurable according to the pin you actually wire to GPIO27.
 constexpr bool DCF77_ACTIVE_LOW = true;
-constexpr bool DCF77_USE_INTERNAL_PULLUP = false; // HW364A/MASO default: OUT as plain INPUT
+#if defined(ESP8266)
+constexpr bool DCF77_USE_INTERNAL_PULLUP = false; // HW364A test default: candidate OUT as plain INPUT
+#else
+constexpr bool DCF77_USE_INTERNAL_PULLUP = true;  // preserve generic ESP32 receiver default
+#endif
 
-// MASO-S-R1 connector functions are confirmed from the PCB silkscreen.
-// SEL/PON electrical polarity is still intentionally runtime-testable from the web portal.
+// MASO-S-R1 silkscreen reads SEL, OUT, PON, GND, VDD.
+// Physical SEL/OUT pad association is still under test; keep SEL/PON runtime-testable.
 constexpr bool MASO_DRIVE_SEL = false; // SEL default = FLOAT
 constexpr bool MASO_DRIVE_PON = true;  // PON default = LOW
 constexpr uint8_t MASO_SEL_LEVEL = LOW;
