@@ -73,6 +73,12 @@ struct DecoderStats {
     bool lastFrameValid = false;
 
     uint32_t lastValidFrameMs = 0;
+
+    // Integrative acquisition state.
+    uint8_t candidateMinutes = 0;
+    uint8_t recoveredBits = 0;
+    uint8_t uncertainBits = 0;
+    uint8_t acquisitionConfidence = 0;
 };
 
 class DCF77Decoder {
@@ -90,6 +96,7 @@ public:
     bool getRunningClock(DCFDateTime &out) const;
     const int8_t *currentFrameBits() const { return _frame; }
     uint8_t currentFrameCount() const { return _frameCount; }
+    const char *acquisitionState() const;
     const int8_t *lastFrameBits() const { return _lastFrame; }
     uint8_t lastFrameCount() const { return _lastFrameCount; }
 
@@ -102,6 +109,7 @@ private:
     DCFDateTime _decoded;
 
     int8_t _frame[61];
+    uint8_t _frameConfidence[61];
     uint8_t _frameCount = 0;
     int8_t _lastFrame[59];
     uint8_t _lastFrameCount = 0;
@@ -127,7 +135,13 @@ private:
     uint32_t _clockBaseMs = 0;
     bool _clockBaseValid = false;
 
+    DCFDateTime _candidateTime;
+    bool _candidateValid = false;
+    uint8_t _candidateStreak = 0;
+    uint8_t _candidateMisses = 0;
+
     int classifyPulse(uint32_t widthUs) const;
+    int softClassifyPulse(uint32_t widthUs, uint8_t &confidence) const;
     void recordPulseTrace(const RawPulse &pulse, int bit, bool valid,
                           bool secondTimingOk, bool minuteGap);
     void finalizeFrame(uint32_t newMinuteStartUs);
@@ -141,4 +155,5 @@ private:
     static bool isLeapYear(int year);
     static int daysInMonth(int year, int month);
     static void addSeconds(DCFDateTime &dt, uint32_t seconds);
+    static bool sameMinute(const DCFDateTime &a, const DCFDateTime &b);
 };
