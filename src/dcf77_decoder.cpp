@@ -649,9 +649,16 @@ void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
     _stats.sampledSymbols++;
     _stats.totalPulses++;
 
-    if (secondIndex > 59) return;
-
+    // Keep diagnostics alive even before minute-phase lock.
     recordSampledTrace(secondIndex, bit, confidence, minuteMarker);
+
+    if (secondIndex > 59) {
+        _stats.lastBit = bit;
+        _stats.lastPulseValid = bit == 0 || bit == 1;
+        _stats.lastPeriodUs = 1000000UL;
+        _stats.lastPulseWidthUs = bit == 0 ? 100000UL : (bit == 1 ? 200000UL : 0UL);
+        return;
+    }
     _stats.lastPeriodUs = minuteMarker ? 2000000UL : 1000000UL;
     _stats.lastPulseWidthUs = bit == 0 ? 100000UL : (bit == 1 ? 200000UL : 0UL);
 
