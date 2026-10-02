@@ -8,6 +8,34 @@ Il modulo fotografato è marcato MASO-S-R1, con SEL/OUT/PON/GND/VDD.
 Non è disponibile un datasheet verificato di questo esatto modulo: **non
 attribuire automaticamente LOW a EU e HIGH a UK, o viceversa**.
 
+## Descrizione commerciale fornita dall'utente
+
+La descrizione dell'inserzione distingue due prodotti:
+
+| Modello indicato | Frequenze dichiarate | Integrato dichiarato |
+|---|---|---|
+| DCF-1060N-03A | DCF77, 77,5 kHz singola banda | CME6005 |
+| JJY-1060N-MAS | JJY, 40/60 kHz doppia banda | MAS6181B |
+
+La stessa descrizione mescola poi specifiche e pin dei due prodotti, tornando
+a indicare 77,5 kHz accanto a dimensioni e tensioni del modello MAS. Non
+identifica quindi in modo affidabile la variante effettivamente consegnata.
+Sono dichiarazioni del venditore riportate dall'utente, non una verifica del
+modulo fisico. Il nome dell'integrato da solo non determina la banda: contano
+anche quarzi, antenna e circuito di selezione presenti sulla scheda.
+
+Per il modello JJY descritto, SEL è indicato come selettore **40/60 kHz**,
+non 60/77,5 kHz. Non è fornita la corrispondenza LOW/HIGH. Se il modulo
+consegnato è effettivamente questa variante, nessuna delle due posizioni
+seleziona DCF77 a 77,5 kHz. Il DCF singola banda dichiarato non può invece
+essere convertito in un ricevitore MSF mediante un'impostazione software.
+
+La scansione già eseguita rimane una prova dei livelli OUT nelle due posizioni
+SEL; non dimostra che siano state selezionate le bande UK/EU. Prima di altre
+prove di commutazione tramite PON occorre identificare la variante acquistata
+e il circuito reale. La descrizione richiede P1 LOW per accendere il modulo;
+non prova da sola l'associazione P1/PON sulla schedina fotografata.
+
 ## Procedura sul profilo HW364A
 
 1. Mantenere PON LOW, OUT INPUT e polarità HIGH; antenna, alimentazione,

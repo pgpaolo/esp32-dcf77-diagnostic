@@ -4,6 +4,12 @@ Ricerca verificata il 2 ottobre 2026. Il protocollo è semplice quando OUT
 presenta una sequenza regolare; la ricezione disturbata richiede anche ricerca
 di fase, controllo dei frame e conferma temporale.
 
+La descrizione commerciale fornita successivamente distingue un DCF-1060N-03A
+singola banda 77,5 kHz con CME6005 da un JJY-1060N-MAS a 40/60 kHz con
+MAS6181B; contiene anche righe che mescolano le due specifiche. Questo non
+conferma una selezione UK/EU sul MASO-S-R1 consegnato. Vedere
+[identificazione della variante e limiti della scansione SEL](DUAL_BAND_SCAN.md).
+
 ## Indicazioni del produttore Micro Analog Systems
 
 Fonte: [MAS6180B, DA6180B.005, 5 febbraio 2021](https://www.mas-oy.com/wp-content/uploads/2016/04/DA6180B_005.pdf).
