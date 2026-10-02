@@ -5,6 +5,7 @@
 È disponibile il profilo `hw364a`, con OLED SSD1306 128x64, tre pagine automatiche
 e portale Wi-Fi di diagnostica. Compilazione: `pio run -e hw364a`.
 Il portale permette anche [registrazione grezza di 3 minuti e prova con Wi-Fi/OLED spenti](docs/RAW_RECORDING.md), con replay e confronto offline con Udo Klein.
+È disponibile una [scansione offline DCF77/MSF](docs/DUAL_BAND_SCAN.md) per confrontare registrazioni con SEL LOW/HIGH e verificare entrambe le polarità, marcatori, parità e data.
 Collegarsi alla rete aperta `DCF77-HW364A-xxxxxx` e aprire http://192.168.4.1 .
 Dal portale è possibile scansionare le reti Wi-Fi locali, selezionare un SSID e configurare la connessione STA. L'access point di configurazione resta attivo anche quando il dispositivo è collegato alla LAN.
 
