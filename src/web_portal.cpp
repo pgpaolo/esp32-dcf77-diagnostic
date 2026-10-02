@@ -248,7 +248,7 @@ th:first-child,td:first-child{text-align:left}
 <h2>Ultimo frame completato</h2><pre id="frame">—</pre>
 
 <script>
-const labels={quality:'Qualità temporale (%)',minuteSynced:'Sincronizzazione minuto',minuteMarkers:'Marker minuto rilevati',frameBitCount:'Posizione frame',lastBit:'Ultimo bit',pulseMs:'Impulso (ms)',periodMs:'Periodo (ms)',jitterMs:'Jitter (ms)',rmsMs:'Jitter RMS (ms)',validPulses:'Impulsi validi',invalidPulses:'Impulsi invalidi',validFrames:'Frame validi',invalidFrames:'Frame invalidi',parityErrors:'Errori parità',timingErrors:'Errori temporali',glitches:'Glitch',frameAgeSeconds:'Età ultimo frame (s)',ppsUs:'Offset PPS (µs)',freeHeap:'RAM libera (byte)'};
+const labels={acquisitionState:'Stato acquisizione',acquisitionConfidence:'Confidenza acquisizione (%)',candidateMinutes:'Minuti coerenti',recoveredBits:'Bit recuperati',uncertainBits:'Bit incerti',quality:'Qualità temporale (%)',minuteSynced:'Sincronizzazione minuto',minuteMarkers:'Marker minuto rilevati',frameBitCount:'Posizione frame',lastBit:'Ultimo bit',pulseMs:'Impulso (ms)',periodMs:'Periodo (ms)',jitterMs:'Jitter (ms)',rmsMs:'Jitter RMS (ms)',validPulses:'Impulsi validi',invalidPulses:'Impulsi invalidi',validFrames:'Frame validi',invalidFrames:'Frame invalidi',parityErrors:'Errori parità',timingErrors:'Errori temporali',glitches:'Glitch',frameAgeSeconds:'Età ultimo frame (s)',ppsUs:'Offset PPS (µs)',freeHeap:'RAM libera (byte)'};
 
 async function update(){
   if(document.hidden)return;
@@ -463,6 +463,11 @@ void status() {
     }
     json += ",\"time\":\""; json += time; json += "\",\"date\":\""; json += date; json += "\"";
     auto number = [&](const char *key, double value) { json += ",\""; json += key; json += "\":"; json += String(value,3); };
+    json += ",\"acquisitionState\":\""; json += currentDecoder->acquisitionState(); json += "\"";
+    number("acquisitionConfidence",s.acquisitionConfidence);
+    number("candidateMinutes",s.candidateMinutes);
+    number("recoveredBits",s.recoveredBits);
+    number("uncertainBits",s.uncertainBits);
     number("quality",s.quality);
     json += ",\"minuteSynced\":"; json += s.minuteSynced ? "true" : "false";
     number("minuteMarkers",s.minuteMarkers);
