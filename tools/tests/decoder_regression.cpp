@@ -8,7 +8,7 @@
 // ISR buffering, PLL, symbol classification and minute accumulator.
 #include "../../src/sampled_dcf77.cpp"
 
-uint32_t testMicros = 0;
+uint64_t testMicros = 0;
 int testPinLevel = LOW;
 
 void require(bool ok, const char *why) {
@@ -140,6 +140,9 @@ void testNoiseAndActivity() {
     sampledDcfSnapshot(snap);
     require(snap.rawTransitionAgeMs>=3500,"raw activity did not expire after disconnection");
     require(snap.samples==1000 && snap.windowDurationUs==1000000,"sampling duration/count not reported correctly");
+    testMicros += 0x100000000ULL;
+    sampledDcfSnapshot(snap);
+    require(snap.rawTransitionAgeMs>=4000,"raw activity reappeared after micros() rollover");
 }
 
 int main() {

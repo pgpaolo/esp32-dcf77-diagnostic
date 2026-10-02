@@ -25,7 +25,7 @@ volatile uint32_t readyStartUs = 0;
 volatile uint32_t readyDurationUs = 0;
 volatile uint16_t readySamples = 0;
 volatile uint32_t rawTransitions = 0;
-volatile uint32_t lastRawTransitionUs = 0;
+volatile uint32_t lastRawTransitionMs = 0;
 volatile bool previousRawActive = false;
 
 uint8_t previousWindow[BINS] = {};
@@ -84,7 +84,7 @@ void IRAM_ATTR onSampleTimer() {
     if (active != previousRawActive) {
         previousRawActive = active;
         ++rawTransitions;
-        lastRawTransitionUs = micros();
+        lastRawTransitionMs = millis();
     }
     if (active) {
         uint8_t &v = const_cast<uint8_t&>(capture[writeBuffer][binIndex]);
@@ -664,7 +664,7 @@ void sampledDcfReset() {
     readyStartUs = readyDurationUs = 0;
     readySamples = 0;
     rawTransitions = 0;
-    lastRawTransitionUs = 0;
+    lastRawTransitionMs = 0;
     previousRawActive = isActiveLevel();
     interrupts();
 
@@ -814,10 +814,10 @@ void sampledDcfSnapshot(SampledDcfSnapshot &out) {
     out = snapshotState;
     noInterrupts();
     const uint32_t transitions = rawTransitions;
-    const uint32_t lastUs = lastRawTransitionUs;
+    const uint32_t lastMs = lastRawTransitionMs;
     interrupts();
     out.rawTransitions = transitions;
-    out.rawTransitionAgeMs = transitions ? (micros() - lastUs) / 1000UL : UINT32_MAX;
+    out.rawTransitionAgeMs = transitions ? millis() - lastMs : UINT32_MAX;
 }
 
 #endif
