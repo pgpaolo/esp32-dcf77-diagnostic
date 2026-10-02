@@ -32,6 +32,13 @@ struct SampledDcfSnapshot {
     uint8_t secondIndex = 255;
     uint8_t secondQuality = 0;
     bool secondLocked = false;
+
+    // 60-position second decoder diagnostics.
+    uint8_t minuteBestCandidate = 0;
+    uint8_t minuteScoreMax = 0;
+    uint8_t minuteScoreNoise = 0;
+    uint8_t minuteLockThreshold = 12;
+    uint32_t syncCandidates = 0;
 };
 
 void sampledDcfBegin(uint8_t pin, bool activeLow);
