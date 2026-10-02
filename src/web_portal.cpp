@@ -2,6 +2,7 @@
 #if defined(ESP8266)
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include "sampled_dcf77.h"
 
 namespace {
 ESP8266WebServer server(80);
@@ -82,48 +83,10 @@ void applyOutInputMode(bool pullup) {
 }
 
 void resetScope() {
-    memset(scopeBins, 0, sizeof(scopeBins));
-    memset(scopeLastBins, 0, sizeof(scopeLastBins));
-    scopeTick = 0;
-    scopeWindowStartUs = micros();
-    scopeNextSampleUs = scopeWindowStartUs;
-    scopeReady = false;
-    scopeLastSamples = 0;
-    scopeLastActiveSamples = 0;
+    sampledDcfReset();
 }
-
 void pollScope() {
-    const uint32_t now = micros();
-    if (!scopeWindowStartUs) resetScope();
-
-    // One sample per call max. If Wi-Fi/web work delayed us, do not create
-    // artificial catch-up samples: reschedule from the current instant.
-    if (static_cast<int32_t>(now - scopeNextSampleUs) >= 0) {
-        const bool rawHigh = digitalRead(PIN_DCF77) != 0;
-        const bool active = dcfActiveLowSelected ? !rawHigh : rawHigh;
-        uint16_t bin = scopeTick / 10U;
-        if (bin > 99) bin = 99;
-        if (active && scopeBins[bin] < 10) scopeBins[bin]++;
-        if (scopeTick < 1000) scopeTick++;
-        scopeNextSampleUs += 1000UL;
-        if (static_cast<int32_t>(now - scopeNextSampleUs) > 5000) {
-            scopeNextSampleUs = now + 1000UL;
-        }
-    }
-
-    if (now - scopeWindowStartUs >= 1000000UL) {
-        memcpy(scopeLastBins, scopeBins, sizeof(scopeBins));
-        memset(scopeBins, 0, sizeof(scopeBins));
-
-        scopeLastSamples = scopeTick > 1000 ? 1000 : scopeTick;
-        scopeLastActiveSamples = 0;
-        for (uint8_t i = 0; i < 100; ++i) scopeLastActiveSamples += scopeLastBins[i];
-
-        scopeTick = 0;
-        scopeReady = true;
-        scopeWindowStartUs = now;
-        scopeNextSampleUs = now + 1000UL;
-    }
+    sampledDcfPoll();
 }
 
 char scopeChar(uint8_t v) {
@@ -233,7 +196,7 @@ th:first-child,td:first-child{text-align:left}
 <dl id="metrics"></dl>
 
 <h2>Scope DCF77 · 1 secondo</h2>
-<p class="muted">Campionamento diretto di OUT ogni ~1 ms, raggruppato in 100 celle da 10 ms. "-" = inattivo, 1..9 = attività parziale, X = attivo per tutta la cella. Questo monitor non dipende dal decoder a fronti.</p>
+<p class="muted">Campionamento hardware di OUT a 1 kHz, indipendente da Wi-Fi/web/OLED. 100 celle da 10 ms: "-" = inattivo, 1..9 = attività parziale, X = attivo per tutta la cella. La stessa acquisizione alimenta il decoder DCF77 principale.</p>
 <pre id="scopeLine">Attesa primo secondo completo…</pre>
 <p id="scopeInfo" class="muted"></p>
 
@@ -370,7 +333,7 @@ async function updateScope(){
     const d=await r.json();
     document.getElementById('scopeLine').textContent=d.ready?d.line:'Attesa primo secondo completo…';
     document.getElementById('scopeInfo').textContent=d.ready
-      ? ('attivo '+d.activeMs+' ms/s · campioni '+d.samples+'/1000 · copertura '+d.coverage+'%')
+      ? ('attivo '+d.activeMs+' ms/s · campioni '+d.samples+'/1000 · copertura '+d.coverage+'% · fase '+d.phaseBin+'0 ms · qualità fase '+d.phaseQuality+'% · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · simbolo '+d.lastSymbol+' ('+d.lastConfidence+'%) · drop '+d.droppedWindows)
       : '';
   }catch(e){
     document.getElementById('scopeLine').textContent='Errore lettura scope';
@@ -493,20 +456,42 @@ void status() {
 }
 
 void scopeStatus() {
+    SampledDcfSnapshot snap;
+    sampledDcfSnapshot(snap);
+
     String json;
-    json.reserve(280);
+    json.reserve(420);
     json = "{\"ready\":";
-    json += scopeReady ? "true" : "false";
+    json += snap.ready ? "true" : "false";
     json += ",\"line\":\"";
-    if (scopeReady) {
-        for (uint8_t i = 0; i < 100; ++i) json += scopeChar(scopeLastBins[i]);
+    if (snap.ready) {
+        for (uint8_t i = 0; i < 100; ++i) json += scopeChar(snap.bins[i]);
     }
     json += "\",\"samples\":";
-    json += String(scopeLastSamples);
+    json += String(snap.samples);
     json += ",\"activeMs\":";
-    json += String(scopeLastActiveSamples);
+    json += String(snap.activeMs);
     json += ",\"coverage\":";
-    json += String(scopeLastSamples >= 1000 ? 100 : (scopeLastSamples * 100UL) / 1000UL);
+    json += String(snap.samples >= 1000 ? 100 : (snap.samples * 100UL) / 1000UL);
+    json += ",\"phaseBin\":";
+    json += String(snap.phaseBin);
+    json += ",\"phaseQuality\":";
+    json += String(snap.phaseQuality);
+    json += ",\"phaseLocked\":";
+    json += snap.phaseLocked ? "true" : "false";
+    json += ",\"lastSymbol\":\"";
+    if (snap.lastMinuteMarker) json += "MIN";
+    else if (snap.lastBit == 0) json += "0";
+    else if (snap.lastBit == 1) json += "1";
+    else json += "?";
+    json += "\",\"lastConfidence\":";
+    json += String(snap.lastConfidence);
+    json += ",\"lastPulseMs\":";
+    json += String(snap.lastPulseMs);
+    json += ",\"secondsObserved\":";
+    json += String(snap.secondsObserved);
+    json += ",\"droppedWindows\":";
+    json += String(snap.droppedWindows);
     json += "}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",json);
