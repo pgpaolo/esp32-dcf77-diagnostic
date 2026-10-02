@@ -492,3 +492,215 @@ bool DCF77Decoder::sameMinute(const DCFDateTime &a, const DCFDateTime &b) {
     return a.year == b.year && a.month == b.month && a.day == b.day &&
            a.hour == b.hour && a.minute == b.minute;
 }
+
+
+int DCF77Decoder::scoreExpectedBit(int position, int expected) const {
+    if (position < 0 || position >= 59) return 0;
+    const int8_t observed = _frame[position];
+    if (observed != 0 && observed != 1) return 0;
+    const int weight = _frameConfidence[position] > 0 ? _frameConfidence[position] : 25;
+    return observed == expected ? weight : -weight;
+}
+
+int DCF77Decoder::scoreFieldValue(const int *positions, const int *weights, size_t n,
+                                  int value, int parityPos) const {
+    int score = 0;
+    int ones = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const bool expected = (value / weights[i]) % 10 >= 1 &&
+                              ((weights[i] < 10)
+                                  ? ((value % 10) & weights[i]) != 0
+                                  : (((value / 10) & (weights[i] / 10)) != 0));
+        const int bit = expected ? 1 : 0;
+        ones += bit;
+        score += scoreExpectedBit(positions[i], bit);
+    }
+    if (parityPos >= 0) score += scoreExpectedBit(parityPos, ones & 1);
+    return score;
+}
+
+bool DCF77Decoder::decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidence) {
+    confidence = 0;
+
+    static const int minPos[] = {21,22,23,24,25,26,27};
+    static const int minW[]   = {1,2,4,8,10,20,40};
+    static const int hrPos[]  = {29,30,31,32,33,34};
+    static const int hrW[]    = {1,2,4,8,10,20};
+    static const int dayPos[] = {36,37,38,39,40,41};
+    static const int dayW[]   = {1,2,4,8,10,20};
+    static const int wdPos[]  = {42,43,44};
+    static const int wdW[]    = {1,2,4};
+    static const int monPos[] = {45,46,47,48,49};
+    static const int monW[]   = {1,2,4,8,10};
+    static const int yrPos[]  = {50,51,52,53,54,55,56,57};
+    static const int yrW[]    = {1,2,4,8,10,20,40,80};
+
+    auto bestValue = [&](const int *pos, const int *weights, size_t n,
+                         int lo, int hi, int parityPos,
+                         int &bestOut, int &marginOut) {
+        int bestScore = -32767, secondScore = -32767, bestVal = lo;
+        for (int v = lo; v <= hi; ++v) {
+            int score = 0;
+            int ones = 0;
+            for (size_t i = 0; i < n; ++i) {
+                int digitBit;
+                if (weights[i] < 10) digitBit = ((v % 10) & weights[i]) ? 1 : 0;
+                else digitBit = (((v / 10) & (weights[i] / 10)) != 0) ? 1 : 0;
+                ones += digitBit;
+                score += scoreExpectedBit(pos[i], digitBit);
+            }
+            if (parityPos >= 0) score += scoreExpectedBit(parityPos, ones & 1);
+
+            if (score > bestScore) {
+                secondScore = bestScore;
+                bestScore = score;
+                bestVal = v;
+            } else if (score > secondScore) {
+                secondScore = score;
+            }
+        }
+        bestOut = bestVal;
+        marginOut = bestScore - secondScore;
+        return bestScore;
+    };
+
+    int minute, hour, day, weekday, month, year2;
+    int mm, hm, dm, wm, mom, ym;
+    const int ms = bestValue(minPos,minW,7,0,59,28,minute,mm);
+    const int hs = bestValue(hrPos,hrW,6,0,23,35,hour,hm);
+    const int ds = bestValue(dayPos,dayW,6,1,31,-1,day,dm);
+    const int ws = bestValue(wdPos,wdW,3,1,7,-1,weekday,wm);
+    const int mos= bestValue(monPos,monW,5,1,12,-1,month,mom);
+    const int ys = bestValue(yrPos,yrW,8,0,99,-1,year2,ym);
+
+    // Date parity couples day/weekday/month/year. Score it after choosing
+    // the strongest candidates for each sub-field.
+    int dateOnes = 0;
+    auto countBits = [&](int v, const int *weights, size_t n) {
+        for (size_t i=0;i<n;++i) {
+            int b = weights[i] < 10 ? (((v%10)&weights[i])!=0)
+                                    : ((((v/10)&(weights[i]/10))!=0));
+            dateOnes += b;
+        }
+    };
+    countBits(day,dayW,6); countBits(weekday,wdW,3);
+    countBits(month,monW,5); countBits(year2,yrW,8);
+    const int dateParityScore = scoreExpectedBit(58, dateOnes & 1);
+
+    // Fixed DCF77 structural bits increase confidence but are not mandatory
+    // when reception is weak.
+    int structural = scoreExpectedBit(20,1);
+    const int z1 = _frame[17], z2 = _frame[18];
+    if ((z1==0||z1==1) && (z2==0||z2==1)) structural += (z1!=z2) ? 40 : -40;
+
+    const int year = 2000 + year2;
+    if (day > daysInMonth(year, month)) return false;
+
+    // Require each field to have at least some separation from its runner-up.
+    // This permits unknown bits but rejects a completely flat score landscape.
+    if (mm < 8 || hm < 8 || dm < 5 || mom < 5 || ym < 5) return false;
+
+    out = DCFDateTime{};
+    out.minute = minute;
+    out.hour = hour;
+    out.day = day;
+    out.weekday = weekday;
+    out.month = month;
+    out.year = year;
+    out.second = 0;
+    out.cest = (z1 == 1 && z2 == 0);
+    out.dstChangePending = _frame[16] == 1;
+    out.leapSecondPending = _frame[19] == 1;
+    out.valid = true;
+
+    const int marginSum = mm + hm + dm + wm + mom + ym;
+    int q = marginSum / 4 + (ms+hs+ds+ws+mos+ys+dateParityScore+structural) / 80;
+    if (q < 0) q = 0;
+    if (q > 100) q = 100;
+    confidence = static_cast<uint8_t>(q);
+    return true;
+}
+
+void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
+                                        uint8_t confidence, bool minuteMarker) {
+    if (_mode != SignalMode::DCF77) return;
+    _stats.sampledSymbols++;
+
+    if (secondIndex > 59) return;
+
+    if (secondIndex == 59 || minuteMarker) {
+        if (_stats.minuteSynced && _frameCount > 0) {
+            _lastFrameCount = 59;
+            for (uint8_t i=0;i<59;++i) _lastFrame[i] = _frame[i];
+
+            DCFDateTime dt;
+            uint8_t fieldQ = 0;
+            const bool valid = decodeFrameProbabilistic(dt, fieldQ);
+            _stats.fieldConfidence = fieldQ;
+            _stats.lastFrameValid = valid;
+
+            if (valid) {
+                _stats.validFrames++;
+                _stats.lastValidFrameMs = millis();
+
+                if (_candidateValid) {
+                    DCFDateTime expected = _candidateTime;
+                    addSeconds(expected, 60);
+                    if (sameMinute(expected, dt)) {
+                        if (_candidateStreak < 255) _candidateStreak++;
+                    } else {
+                        _candidateStreak = 1;
+                    }
+                } else {
+                    _candidateStreak = 1;
+                }
+
+                _candidateTime = dt;
+                _candidateValid = true;
+                _candidateMisses = 0;
+                _stats.candidateMinutes = _candidateStreak;
+
+                // Prediction match is deliberately simple: it measures whether
+                // consecutive decoded minutes follow the local-clock model.
+                _stats.predictionMatch = _candidateStreak >= 2 ? 100 : 50;
+
+                if (_candidateStreak >= 2) {
+                    _stats.clockLocked = true;
+                    _decoded = dt;
+                    setClockBase(dt, micros());
+                }
+                _stats.acquisitionConfidence = fieldQ;
+            } else {
+                _stats.invalidFrames++;
+                if (_candidateMisses < 255) _candidateMisses++;
+                _stats.predictionMatch = 0;
+            }
+        }
+
+        _stats.minuteMarkers++;
+        _stats.minuteSynced = true;
+        _frameCount = 0;
+        _stats.frameBitCount = 0;
+        memset(_frame,-1,sizeof(_frame));
+        memset(_frameConfidence,0,sizeof(_frameConfidence));
+        return;
+    }
+
+    if (!_stats.minuteSynced) return;
+
+    if (secondIndex < 59) {
+        _frame[secondIndex] = (bit==0 || bit==1) ? bit : -1;
+        _frameConfidence[secondIndex] = confidence;
+        if (bit < 0 || confidence < 45) _stats.uncertainBits++;
+
+        // frameBitCount is now the furthest known position + 1, not a count
+        // of received edges.
+        const uint8_t pos = secondIndex + 1;
+        if (pos > _frameCount) _frameCount = pos;
+        _stats.frameBitCount = _frameCount;
+        _stats.lastBit = bit;
+        _stats.lastPulseValid = bit == 0 || bit == 1;
+        if (_stats.lastPulseValid) _stats.validPulses++;
+        else _stats.invalidPulses++;
+    }
+}
