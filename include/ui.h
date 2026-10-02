@@ -14,12 +14,16 @@ public:
     void begin();
     void nextPage();
     void toggleBacklight();
+#if defined(ESP8266)
+    void suspend(bool suspended);
+#endif
     void draw(const DCF77Decoder &decoder, int analogRaw, const char *bandLabel, bool receiverReady);
 
 private:
 #if defined(ESP8266)
     Adafruit_SSD1306 _oled;
     bool _available = false;
+    bool _suspended = false;
     uint32_t _lastPageMs = 0;
 #else
     TFT_eSPI _tft;

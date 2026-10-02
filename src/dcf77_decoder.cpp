@@ -706,6 +706,12 @@ void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
 
     // Keep diagnostics alive even before minute-phase lock.
     recordSampledTrace(secondIndex, bit, confidence, minuteMarker, markerCandidate);
+    // Count classified symbols also before minute lock; raw OUT activity is
+    // reported separately. Provisional quiet markers are not invalid pulses.
+    if (!minuteMarker && !markerCandidate) {
+        if (bit == 0 || bit == 1) _stats.validPulses++;
+        else _stats.invalidPulses++;
+    }
 
     if (secondIndex > 59) {
         // Minute phase was lost: do not mix an old partial frame with a new
@@ -800,7 +806,5 @@ void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
         _stats.frameBitCount = _frameCount;
         _stats.lastBit = bit;
         _stats.lastPulseValid = bit == 0 || bit == 1;
-        if (_stats.lastPulseValid) _stats.validPulses++;
-        else _stats.invalidPulses++;
     }
 }

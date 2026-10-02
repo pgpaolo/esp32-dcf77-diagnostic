@@ -1,5 +1,6 @@
 #include "sampled_dcf77.h"
 #include "config.h"
+#include "raw_recording.h"
 
 #if defined(ESP8266)
 #include <string.h>
@@ -82,6 +83,7 @@ inline bool IRAM_ATTR isActiveLevel() {
 
 void IRAM_ATTR onSampleTimer() {
     const bool active = isActiveLevel();
+    rawRecordSample(activeLow ? !active : active); // physical OUT, before filtering
     if (active != previousRawActive) {
         previousRawActive = active;
         ++rawTransitions;

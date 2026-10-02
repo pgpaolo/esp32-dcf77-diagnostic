@@ -177,6 +177,8 @@ void pollButtons() {
 void pollSerialCommands() {
     while (Serial.available()) {
         const char c = static_cast<char>(Serial.read());
+        if (c == 'x' || c == 'X') { portalRecordingCancel(); continue; }
+        if (portalRecordingBusy()) continue;
         if (c == 'b' || c == 'B') {
             toggleBand();
         } else if ((c == '7') && receiver.isDual()) {
@@ -267,6 +269,7 @@ void setup() {
 }
 
 void loop() {
+    portalRecordingPoll(ui);
     pollSerialCommands();
     pollButtons();
 

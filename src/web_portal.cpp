@@ -3,6 +3,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include "sampled_dcf77.h"
+#include "raw_recording.h"
 
 namespace {
 ESP8266WebServer server(80);
@@ -21,6 +22,83 @@ enum class PinDriveMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
 PinDriveMode selMode = PinDriveMode::FLOATING;
 PinDriveMode ponMode = PinDriveMode::LOW_LEVEL;
 SignalMode selectedSignalMode = SignalMode::DCF77;
+bool recordBusy = false, recordQuiet = false, radioPaused = false, recordCancelled = false;
+uint8_t recordStage = 0;
+uint32_t recordStageMs = 0, recordStartedMs = 0;
+bool recordActiveLow = false, recordPullup = false;
+PinDriveMode recordSel = PinDriveMode::FLOATING, recordPon = PinDriveMode::LOW_LEVEL;
+const char *modeLabel(PinDriveMode mode);
+
+bool rejectDuringRecording() {
+    if (!recordBusy) return false;
+    server.send(409,"application/json","{\"ok\":false,\"message\":\"Registrazione in corso: attendere o interrompere\"}");
+    return true;
+}
+
+String recordingInfo() {
+    String json; json.reserve(500);
+    json = "{\"format\":\"DCFRAW1\",\"sampleRateHz\":1000,\"encoding\":\"physical-high-lsb-first\",\"samples\":";
+    json += rawRecordCount();
+    json += ",\"durationUs\":"; json += rawRecordDurationUs();
+    json += ",\"timingGaps\":"; json += rawRecordTimingGaps();
+    json += ",\"maxGapUs\":"; json += rawRecordMaxGapUs();
+    json += ",\"activeLow\":"; json += recordActiveLow ? "true" : "false";
+    json += ",\"pullup\":"; json += recordPullup ? "true" : "false";
+    json += ",\"quiet\":"; json += recordQuiet ? "true" : "false";
+    json += ",\"busy\":"; json += recordBusy ? "true" : "false";
+    json += ",\"cancelled\":"; json += recordCancelled ? "true" : "false";
+    json += ",\"complete\":"; json += !recordBusy && rawRecordCount()==RAW_RECORD_SAMPLES ? "true" : "false";
+    json += ",\"sel\":\""; json += modeLabel(recordSel);
+    json += "\",\"pon\":\""; json += modeLabel(recordPon);
+    json += "\",\"firmware\":\"recording-v1\"}";
+    return json;
+}
+
+void recordingStatus() {
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",recordingInfo());
+}
+void startRecording() {
+    if (rejectDuringRecording()) return;
+    const String mode = server.arg("mode");
+    if ((mode != "normal" && mode != "quiet") || ponStartActive ||
+        selectedSignalMode != SignalMode::DCF77) {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Scegli normal/quiet in DCF77 e attendi la fine di START PON\"}"); return;
+    }
+    // Fail before shutting down the network; leave a reserve for HTTP/decoder.
+    if ((!rawRecordData() && (ESP.getFreeHeap() < RAW_RECORD_BYTES + 9000 ||
+         ESP.getMaxFreeBlockSize() < RAW_RECORD_BYTES)) || !rawRecordPrepare()) {
+        server.send(503,"application/json","{\"ok\":false,\"message\":\"RAM insufficiente: riavviare il dispositivo e riprovare\"}"); return;
+    }
+    recordQuiet = mode == "quiet"; recordCancelled = false;
+    recordActiveLow = dcfActiveLowSelected; recordPullup = outPullupEnabled;
+    recordSel = selMode; recordPon = ponMode;
+    recordBusy = true; recordStage = 1; recordStageMs = millis();
+    server.send(202,"application/json","{\"ok\":true,\"message\":\"Registrazione di 180 s avviata. In quiet il portale torna dopo circa 185 s; recupero su 192.168.4.1. La nuova registrazione sostituisce la precedente.\"}");
+}
+void stopRecording() {
+    recordCancelled = true;
+    rawRecordStop();
+    if (recordBusy) recordStage = 4;
+    server.send(200,"application/json","{\"ok\":true}");
+}
+void downloadRecording() {
+    if (rejectDuringRecording()) return;
+    const uint32_t count = rawRecordCount();
+    if (!count) { server.send(404,"text/plain","Nessuna registrazione"); return; }
+    const String header = recordingInfo() + "\n";
+    const size_t bytes = (count + 7) / 8;
+    server.sendHeader("Content-Disposition","attachment; filename=dcf77-out.dcfraw");
+    server.sendHeader("Cache-Control","no-store");
+    server.setContentLength(header.length() + bytes);
+    server.send(200,"application/octet-stream","");
+    server.sendContent(header);
+    for (size_t offset=0; offset<bytes && server.client().connected(); offset+=512) {
+        const size_t length = bytes-offset < 512 ? bytes-offset : 512;
+        server.sendContent(reinterpret_cast<const char *>(rawRecordData()+offset),length);
+        yield();
+    }
+}
 
 // Sampled scope (MIT-compatible independent implementation inspired by the
 // troubleshooting method used by Udo Klein and other DCF77 projects).
@@ -195,6 +273,16 @@ th:first-child,td:first-child{text-align:left}
 
 <dl id="metrics"></dl>
 
+<h2>Registrazione OUT · 3 minuti</h2>
+<p class="muted">Conserva 180.000 campioni grezzi in RAM. Una nuova prova sostituisce la precedente; scaricala prima. Nella prova silenziosa Wi-Fi e OLED si spengono e tornano automaticamente dopo circa 185 secondi. Se l'IP LAN cambia, collegati all'AP su 192.168.4.1. Il riavvio perde i dati.</p>
+<div class="row">
+<button type="button" onclick="startRecord('normal')">Registra con Wi-Fi/OLED attivi</button>
+<button type="button" onclick="startRecord('quiet')">Registra con Wi-Fi/OLED spenti</button>
+<button type="button" onclick="stopRecord()">Interrompi registrazione</button>
+</div>
+<p id="recordState" class="muted">Nessuna registrazione</p>
+<a href="/api/recording/download" download>Scarica registrazione OUT</a>
+
 <h2>Scope DCF77 · 1 secondo</h2>
 <p class="muted">Campionamento hardware di OUT a 1 kHz, indipendente da Wi-Fi/web/OLED. 100 celle da 10 ms: "-" = inattivo, 1..9 = attività parziale, X = attivo per tutta la cella. La stessa acquisizione alimenta il decoder DCF77 principale.</p>
 <pre id="scopeLine">Attesa primo secondo completo…</pre>
@@ -211,10 +299,33 @@ th:first-child,td:first-child{text-align:left}
 <h2>Ultimo frame completato</h2><pre id="frame">—</pre>
 
 <script>
+let quietUntil=0;
+async function startRecord(mode){
+  const el=document.getElementById('recordState');
+  try{
+    const r=await fetch('/api/recording/start',{method:'POST',body:new URLSearchParams({mode})});
+    const d=await r.json();el.textContent=d.message;
+    if(r.ok&&mode==='quiet')quietUntil=Date.now()+185000;
+  }catch(e){el.textContent='Avvio non confermato: controllare lo stato della registrazione'}
+}
+async function stopRecord(){
+  if(Date.now()<quietUntil){document.getElementById('recordState').textContent='Wi-Fi spento: attendi il ripristino automatico oppure invia x tramite seriale.';return}
+  await fetch('/api/recording/stop',{method:'POST'});updateRecord();
+}
+async function updateRecord(){
+  if(document.hidden)return;
+  const el=document.getElementById('recordState');
+  if(Date.now()<quietUntil){el.textContent='Prova silenziosa: portale sospeso, ritorno previsto fra '+Math.ceil((quietUntil-Date.now())/1000)+' s';return}
+  try{
+    const r=await fetch('/api/recording',{cache:'no-store'});const d=await r.json();
+    el.textContent=(d.busy?'Registrazione in corso':(d.complete?'Registrazione completa':(d.samples?'Registrazione parziale':'Nessuna registrazione')))+' · '+(d.samples/1000).toFixed(1)+' s di campioni · anomalie temporali '+d.timingGaps+(d.samples?' · '+(d.quiet?'Wi-Fi/OLED spenti':'Wi-Fi/OLED attivi'):'');
+  }catch(e){el.textContent='Dispositivo non raggiungibile: attendere il ripristino o usare 192.168.4.1'}
+}
+setInterval(updateRecord,2000);updateRecord();
 const labels={acquisitionState:'Stato acquisizione',acquisitionConfidence:'Confidenza acquisizione (%)',fieldConfidence:'Confidenza campi BCD (%)',predictionMatch:'Coerenza predittiva (%)',sampledSymbols:'Simboli campionati',candidateMinutes:'Minuti coerenti',recoveredBits:'Bit recuperati',uncertainBits:'Bit incerti',quality:'Qualità temporale (%)',minuteSynced:'Sincronizzazione minuto',minuteMarkers:'Marker minuto rilevati',frameBitCount:'Posizione frame',lastBit:'Ultimo bit',pulseMs:'Impulso (ms)',periodMs:'Periodo (ms)',jitterMs:'Jitter (ms)',rmsMs:'Jitter RMS (ms)',validPulses:'Impulsi validi',invalidPulses:'Impulsi invalidi',validFrames:'Frame validi',invalidFrames:'Frame invalidi',parityErrors:'Errori parità',timingErrors:'Errori temporali',glitches:'Glitch',frameAgeSeconds:'Età ultimo frame (s)',ppsUs:'Offset PPS (µs)',freeHeap:'RAM libera (byte)'};
 
 async function update(){
-  if(document.hidden)return;
+  if(document.hidden||Date.now()<quietUntil)return;
   try{
     const r=await fetch('/api/status',{cache:'no-store'});
     if(!r.ok)throw Error();
@@ -447,7 +558,11 @@ void status() {
     number("candidateMinutes",s.candidateMinutes);
     number("recoveredBits",s.recoveredBits);
     number("uncertainBits",s.uncertainBits);
-    number("quality",s.quality);
+    const bool qualityRecent = s.totalPulses && millis()-lastPulseMs < 3500 &&
+        (selectedSignalMode != SignalMode::DCF77 || snap.phaseLocked);
+    number("historicalQuality",s.quality);
+    json += ",\"quality\":"; json += qualityRecent ? String(s.quality) : String("null");
+    json += ",\"qualityRecent\":"; json += qualityRecent ? "true" : "false";
     json += ",\"minuteSynced\":"; json += s.minuteSynced ? "true" : "false";
     number("minuteMarkers",s.minuteMarkers);
     number("frameBitCount",s.frameBitCount); number("lastBit",s.lastBit);
@@ -636,6 +751,7 @@ bool parseDriveMode(const String &mode, PinDriveMode &out) {
 }
 
 void setDecoderMode() {
+    if (rejectDuringRecording()) return;
     if (!server.hasArg("mode")) {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
         return;
@@ -655,6 +771,7 @@ void setDecoderMode() {
 }
 
 void setReceiverControl() {
+    if (rejectDuringRecording()) return;
     if (!server.hasArg("pin") || !server.hasArg("mode")) {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametri pin/mode mancanti\"}");
         return;
@@ -682,6 +799,7 @@ void setReceiverControl() {
 }
 
 void setOutMode() {
+    if (rejectDuringRecording()) return;
     if (!server.hasArg("mode")) {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
         return;
@@ -700,6 +818,7 @@ void setOutMode() {
 }
 
 void setPolarity() {
+    if (rejectDuringRecording()) return;
     if (!server.hasArg("mode")) {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
         return;
@@ -719,6 +838,7 @@ void setPolarity() {
 }
 
 void startPonSequence() {
+    if (rejectDuringRecording()) return;
     applyPonMode(PinDriveMode::HIGH_LEVEL);
     ponStartBeganMs = millis();
     ponStartActive = true;
@@ -746,6 +866,7 @@ void wifiStatus() {
 }
 
 void scanNetworks() {
+    if (rejectDuringRecording()) return;
     const int count = WiFi.scanNetworks(false, true);
     String json;
     json.reserve(180 + (count > 0 ? count * 80 : 0));
@@ -771,6 +892,7 @@ void scanNetworks() {
 }
 
 void connectWifi() {
+    if (rejectDuringRecording()) return;
     if (!server.hasArg("ssid")) {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"SSID mancante\"}");
         return;
@@ -827,6 +949,10 @@ void portalBegin() {
     server.on("/api/wifi",HTTP_GET,wifiStatus);
     server.on("/api/networks",HTTP_GET,scanNetworks);
     server.on("/api/wifi/connect",HTTP_POST,connectWifi);
+    server.on("/api/recording",HTTP_GET,recordingStatus);
+    server.on("/api/recording/start",HTTP_POST,startRecording);
+    server.on("/api/recording/stop",HTTP_POST,stopRecording);
+    server.on("/api/recording/download",HTTP_GET,downloadRecording);
     server.onNotFound([](){server.send(404,"text/plain","Not found");});
     server.begin();
 }
@@ -859,7 +985,46 @@ void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver) {
         rateSampleMs = now;
         rateSamplePulses = snap.rawTransitions;
     }
-    server.handleClient();
+    if (!radioPaused) server.handleClient();
+}
+
+void portalRecordingPoll(AnalyzerUI &ui) {
+    if (!recordBusy) return;
+    const uint32_t now = millis();
+    if (recordStage == 1 && now-recordStageMs >= 1500) {
+        if (recordQuiet) {
+            ui.suspend(true);
+            WiFi.persistent(false);
+            WiFi.mode(WIFI_OFF);
+            radioPaused = true;
+        }
+        recordStage=2; recordStageMs=now;
+    }
+    if (recordStage == 2 && now-recordStageMs >= 2000) {
+        rawRecordStart(); recordStartedMs=now; recordStage=3;
+    }
+    if (recordStage == 3 && (!rawRecordRunning() || now-recordStartedMs >= 190000)) {
+        if (rawRecordRunning()) { recordCancelled=true; rawRecordStop(); }
+        recordStage=4;
+    }
+    if (recordStage == 4) {
+        rawRecordStop();
+        if (radioPaused) {
+            WiFi.mode(WIFI_AP_STA);
+            char ssid[32]; snprintf(ssid,sizeof(ssid),"DCF77-HW364A-%06X",ESP.getChipId());
+            WiFi.softAP(ssid);
+            WiFi.begin(); // existing stored STA credentials; no credential writes
+            radioPaused=false;
+            ui.suspend(false);
+        }
+        recordBusy=false; recordStage=0;
+        Serial.printf("Recording ended: %lu samples, gaps=%lu; WiFi/OLED restored\n",
+            (unsigned long)rawRecordCount(),(unsigned long)rawRecordTimingGaps());
+    }
+}
+bool portalRecordingBusy() { return recordBusy; }
+void portalRecordingCancel() {
+    if (recordBusy) { recordCancelled=true; rawRecordStop(); recordStage=4; }
 }
 
 bool portalTakeReceiverResetRequest() {
@@ -878,6 +1043,9 @@ SignalMode portalSignalMode() {
 
 const char *portalAddress() { return "192.168.4.1"; }
 #else
+void portalRecordingPoll(AnalyzerUI &) {}
+bool portalRecordingBusy() { return false; }
+void portalRecordingCancel() {}
 void portalBegin() {}
 void portalPoll(const DCF77Decoder &, const ReceiverControl &) {}
 bool portalTakeReceiverResetRequest() { return false; }

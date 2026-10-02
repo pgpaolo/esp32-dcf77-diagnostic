@@ -147,6 +147,30 @@ void testNoiseAndActivity() {
 
 int main() {
     try {
+        require(rawRecordPrepare(),"recording allocation failed");
+        rawRecordStart();
+        require(!rawRecordPrepare(),"active recording overwritten");
+        testMicros=0;
+        for (uint32_t i=0;i<RAW_RECORD_SAMPLES;++i) {
+            testMicros+=1000; rawRecordSample(i%8==0);
+        }
+        require(!rawRecordRunning() && rawRecordCount()==RAW_RECORD_SAMPLES,
+            "recording did not stop at capacity");
+        require(rawRecordData()[0]==1 && rawRecordData()[RAW_RECORD_BYTES-1]==1,
+            "recorded bit order or end of buffer incorrect");
+        require(rawRecordDurationUs()==179999000 && rawRecordTimingGaps()==0,
+            "recorded timing metadata incorrect");
+        require(rawRecordPrepare(),"recording reset failed");
+        rawRecordStart(); rawRecordSample(false); testMicros+=3000; rawRecordSample(true);
+        rawRecordStop(); testMicros+=1000; rawRecordSample(true);
+        require(rawRecordCount()==2 && rawRecordTimingGaps()==1 && rawRecordMaxGapUs()==3000,
+            "recording cancellation or timing anomaly failed");
+        DCF77Decoder counters;
+        counters.processSampledSymbol(255,0,70,false,false);
+        counters.processSampledSymbol(255,-1,20,false,false);
+        counters.processSampledSymbol(255,-1,100,false,true);
+        require(counters.stats().validPulses==1 && counters.stats().invalidPulses==1,
+            "pre-lock symbol counters incorrect");
         testBoundaryGate();
         for (int phase : {0,20,500,940,950,960,990}) testCompleteStream(phase);
         for (int phase : {0,950,990}) {

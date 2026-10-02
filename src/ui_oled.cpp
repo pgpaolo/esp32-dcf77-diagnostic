@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "config.h"
 #include "web_portal.h"
+#include "sampled_dcf77.h"
 #include <Wire.h>
 
 AnalyzerUI::AnalyzerUI() : _oled(128, 64, &Wire, -1) {}
@@ -16,11 +17,17 @@ void AnalyzerUI::nextPage() {
     _lastPageMs = millis();
 }
 void AnalyzerUI::toggleBacklight() {
+    if (_suspended) return;
     _backlight = !_backlight;
     if (_available) _oled.ssd1306_command(_backlight ? SSD1306_DISPLAYON : SSD1306_DISPLAYOFF);
 }
+void AnalyzerUI::suspend(bool suspended) {
+    _suspended = suspended;
+    if (_available) _oled.ssd1306_command(suspended || !_backlight
+        ? SSD1306_DISPLAYOFF : SSD1306_DISPLAYON);
+}
 void AnalyzerUI::draw(const DCF77Decoder &decoder, int, const char *bandLabel, bool ready) {
-    if (!_available || !_backlight || millis() - _lastDrawMs < 500) return;
+    if (_suspended || !_available || !_backlight || millis() - _lastDrawMs < 500) return;
     _lastDrawMs = millis();
     if (millis() - _lastPageMs >= OLED_PAGE_MS) nextPage();
     const auto &s = decoder.stats();
@@ -38,7 +45,9 @@ void AnalyzerUI::draw(const DCF77Decoder &decoder, int, const char *bandLabel, b
         _oled.setTextSize(1);
         if (clock) _oled.printf("%02d/%02d/%04d %s\n",dt.day,dt.month,dt.year,dt.cest?"CEST":"CET");
         else _oled.println("Attesa frame valido");
-        _oled.printf("Qualita: %u%%\n",s.quality);
+        SampledDcfSnapshot snap; sampledDcfSnapshot(snap);
+        if (snap.phaseLocked) _oled.printf("Confidenza: %u%%\n",s.quality);
+        else _oled.println("Confidenza: -- (SEARCH)");
         if (s.validFrames) _oled.printf("Ultimo frame: %lus\n",(unsigned long)((millis()-s.lastValidFrameMs)/1000));
         else _oled.println("Nessun frame valido");
         _oled.println(portalAddress());

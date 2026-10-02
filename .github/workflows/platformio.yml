@@ -18,7 +18,7 @@ jobs:
         run: python tools/dcf77_reference_fixture.py
       - name: Test production DCF77 sampler and decoder
         run: |
-          g++ -std=c++17 -O1 -g -fsanitize=address,undefined -DESP8266 -Itools/tests -Iinclude tools/tests/decoder_regression.cpp src/dcf77_decoder.cpp -o /tmp/dcf77-tests
+          g++ -std=c++17 -O1 -g -fsanitize=address,undefined -DESP8266 -Itools/tests -Iinclude tools/tests/decoder_regression.cpp src/dcf77_decoder.cpp src/raw_recording.cpp -o /tmp/dcf77-tests
           /tmp/dcf77-tests
       - name: Build generic DCF77 profile
         run: pio run -e ttgo-t-display
@@ -26,3 +26,10 @@ jobs:
         run: pio run -e ttgo-t-display-dual
       - name: Build HW364A OLED profile
         run: pio run -e hw364a
+      - uses: actions/checkout@v4
+        with:
+          repository: udoklein/dcf77
+          ref: 00d2450f47311268ba5de17f35480781928b34dc
+          path: .reference-dcf77
+      - name: Test exact recording replay with both decoders
+        run: python tools/tests/recording_replay_test.py .reference-dcf77
