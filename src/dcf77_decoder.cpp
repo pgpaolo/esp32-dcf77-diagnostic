@@ -73,7 +73,29 @@ void DCF77Decoder::recordPulseTrace(const RawPulse &pulse, int bit, bool valid,
     t.valid = valid;
     t.secondTimingOk = secondTimingOk;
     t.minuteGap = minuteGap;
+    t.sampled = false;
+    t.confidence = valid ? 100 : 0;
+    t.secondIndex = 255;
     t.framePos = _stats.frameBitCount;
+
+    _pulseTraceHead = (_pulseTraceHead + 1) % PULSE_TRACE_SIZE;
+    if (_pulseTraceCount < PULSE_TRACE_SIZE) _pulseTraceCount++;
+}
+
+void DCF77Decoder::recordSampledTrace(uint8_t secondIndex, int8_t bit,
+                                      uint8_t confidence, bool minuteMarker) {
+    PulseTrace &t = _pulseTrace[_pulseTraceHead];
+    t.capturedMs = millis();
+    t.widthUs = bit == 0 ? 100000UL : (bit == 1 ? 200000UL : 0UL);
+    t.periodUs = minuteMarker ? 2000000UL : 1000000UL;
+    t.bit = bit;
+    t.valid = bit == 0 || bit == 1;
+    t.secondTimingOk = true;
+    t.minuteGap = minuteMarker;
+    t.sampled = true;
+    t.confidence = confidence;
+    t.secondIndex = secondIndex;
+    t.framePos = secondIndex < 59 ? secondIndex : 59;
 
     _pulseTraceHead = (_pulseTraceHead + 1) % PULSE_TRACE_SIZE;
     if (_pulseTraceCount < PULSE_TRACE_SIZE) _pulseTraceCount++;
@@ -625,8 +647,13 @@ void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
                                         uint8_t confidence, bool minuteMarker) {
     if (_mode != SignalMode::DCF77) return;
     _stats.sampledSymbols++;
+    _stats.totalPulses++;
 
     if (secondIndex > 59) return;
+
+    recordSampledTrace(secondIndex, bit, confidence, minuteMarker);
+    _stats.lastPeriodUs = minuteMarker ? 2000000UL : 1000000UL;
+    _stats.lastPulseWidthUs = bit == 0 ? 100000UL : (bit == 1 ? 200000UL : 0UL);
 
     if (secondIndex == 59 || minuteMarker) {
         if (_stats.minuteSynced && _frameCount > 0) {
