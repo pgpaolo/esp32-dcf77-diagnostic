@@ -15,6 +15,9 @@ void DCF77Decoder::reset() {
     _qualityPos = _qualityCount = 0;
     _jitterPos = _jitterCount = 0;
     _zeroCount = _oneCount = _periodCount = 0;
+    _pulseTraceHead = 0;
+    _pulseTraceCount = 0;
+    memset(_pulseTrace, 0, sizeof(_pulseTrace));
     _clockBase = DCFDateTime{};
     _clockBaseMs = 0;
     _clockBaseValid = false;
@@ -35,6 +38,30 @@ int DCF77Decoder::classifyPulse(uint32_t widthUs) const {
     if (widthUs >= DCF_ZERO_MIN_US && widthUs <= DCF_ZERO_MAX_US) return 0;
     if (widthUs >= DCF_ONE_MIN_US && widthUs <= DCF_ONE_MAX_US) return 1;
     return -1;
+}
+
+void DCF77Decoder::recordPulseTrace(const RawPulse &pulse, int bit, bool valid,
+                                    bool secondTimingOk, bool minuteGap) {
+    PulseTrace &t = _pulseTrace[_pulseTraceHead];
+    t.capturedMs = millis();
+    t.widthUs = pulse.widthUs;
+    t.periodUs = pulse.periodUs;
+    t.bit = static_cast<int8_t>(bit);
+    t.valid = valid;
+    t.secondTimingOk = secondTimingOk;
+    t.minuteGap = minuteGap;
+    t.framePos = _stats.frameBitCount;
+
+    _pulseTraceHead = (_pulseTraceHead + 1) % PULSE_TRACE_SIZE;
+    if (_pulseTraceCount < PULSE_TRACE_SIZE) _pulseTraceCount++;
+}
+
+bool DCF77Decoder::recentPulse(uint8_t newestIndex, PulseTrace &out) const {
+    if (newestIndex >= _pulseTraceCount) return false;
+    int index = static_cast<int>(_pulseTraceHead) - 1 - newestIndex;
+    while (index < 0) index += PULSE_TRACE_SIZE;
+    out = _pulseTrace[index];
+    return true;
 }
 
 void DCF77Decoder::processPulse(const RawPulse &pulse) {
@@ -70,6 +97,7 @@ void DCF77Decoder::processPulse(const RawPulse &pulse) {
         }
 
         updateQuality(pulse, -1, valid, normalSecond);
+        recordPulseTrace(pulse, -1, valid, normalSecond, false);
         return;
     }
 
@@ -134,6 +162,8 @@ void DCF77Decoder::processPulse(const RawPulse &pulse) {
         }
         _stats.frameBitCount = _frameCount;
     }
+
+    recordPulseTrace(pulse, bit, valid, normalSecond, minuteGap);
 }
 
 void DCF77Decoder::finalizeFrame(uint32_t newMinuteStartUs) {
