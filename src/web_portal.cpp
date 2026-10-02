@@ -7,20 +7,36 @@ namespace {
 ESP8266WebServer server(80);
 const DCF77Decoder *currentDecoder = nullptr;
 uint32_t observedPulses = 0, lastPulseMs = 0;
-enum class SelMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
-SelMode selMode = SelMode::FLOATING;
+uint32_t rateSampleMs = 0, rateSamplePulses = 0;
+float pulseEventsPerSecond = 0.0f;
+enum class PinDriveMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
+PinDriveMode selMode = PinDriveMode::FLOATING;
+PinDriveMode ponMode = PinDriveMode::FLOATING;
 
-void applySelMode(SelMode mode) {
-    selMode = mode;
-    if (mode == SelMode::FLOATING) {
-        pinMode(PIN_RX_BAND, INPUT);
-        Serial.println("MASO SEL: FLOAT / input");
+const char *modeLabel(PinDriveMode mode) {
+    if (mode == PinDriveMode::FLOATING) return "FLOAT";
+    return mode == PinDriveMode::HIGH_LEVEL ? "HIGH" : "LOW";
+}
+
+void applyPinMode(uint8_t pin, PinDriveMode mode, const char *name) {
+    if (mode == PinDriveMode::FLOATING) {
+        pinMode(pin, INPUT);
+        Serial.printf("MASO %s: GPIO%d -> FLOAT / input\n", name, pin);
         return;
     }
-    digitalWrite(PIN_RX_BAND, mode == SelMode::HIGH_LEVEL ? HIGH : LOW);
-    pinMode(PIN_RX_BAND, OUTPUT);
-    Serial.printf("MASO SEL: GPIO%d -> %s\n", PIN_RX_BAND,
-                  mode == SelMode::HIGH_LEVEL ? "HIGH" : "LOW");
+    digitalWrite(pin, mode == PinDriveMode::HIGH_LEVEL ? HIGH : LOW);
+    pinMode(pin, OUTPUT);
+    Serial.printf("MASO %s: GPIO%d -> %s\n", name, pin, modeLabel(mode));
+}
+
+void applySelMode(PinDriveMode mode) {
+    selMode = mode;
+    applyPinMode(PIN_RX_BAND, mode, "SEL");
+}
+
+void applyPonMode(PinDriveMode mode) {
+    ponMode = mode;
+    applyPinMode(PIN_RX_PON, mode, "PON");
 }
 
 String jsonEscape(const String &value) {
@@ -76,14 +92,23 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <div class="card">
 <h2 style="margin-top:0">Ricevitore MASO-S-R1</h2>
-<p class="muted">SEL è collegato a <b>GPIO5 / D1</b>. Puoi lasciarlo flottante oppure pilotarlo a LOW o HIGH per verificare quale stato abilita correttamente il ricevitore DCF77.</p>
-<div id="selState" class="warn">SEL: verifica stato…</div>
-<div class="row" style="margin-top:12px">
-<div><button type="button" onclick="setSel('float')">SEL FLOAT</button></div>
-<div><button type="button" onclick="setSel('low')">SEL LOW</button></div>
-<div><button type="button" onclick="setSel('high')">SEL HIGH</button></div>
+<p class="muted"><b>OUT</b> è su D7/GPIO13, <b>SEL</b> su D2/GPIO4 e <b>PON/ENABLE</b> su D1/GPIO5. SEL e PON possono essere lasciati flottanti oppure pilotati a LOW/HIGH per la diagnostica.</p>
+<div id="receiverState" class="warn">Verifica stato ricevitore…</div>
+
+<p><b>SEL · D2 / GPIO4</b></p>
+<div class="row">
+<div><button type="button" onclick="setReceiverPin('sel','float')">SEL FLOAT</button></div>
+<div><button type="button" onclick="setReceiverPin('sel','low')">SEL LOW</button></div>
+<div><button type="button" onclick="setReceiverPin('sel','high')">SEL HIGH</button></div>
 </div>
-<p id="selMsg" class="muted"></p>
+
+<p><b>PON / ENABLE · D1 / GPIO5</b></p>
+<div class="row">
+<div><button type="button" onclick="setReceiverPin('pon','float')">PON FLOAT</button></div>
+<div><button type="button" onclick="setReceiverPin('pon','low')">PON LOW</button></div>
+<div><button type="button" onclick="setReceiverPin('pon','high')">PON HIGH</button></div>
+</div>
+<p id="receiverMsg" class="muted"></p>
 </div>
 
 <dl id="metrics"></dl>
@@ -130,24 +155,27 @@ async function updateReceiver(){
     const r=await fetch('/api/receiver',{cache:'no-store'});
     if(!r.ok)throw Error();
     const d=await r.json();
-    const el=document.getElementById('selState');
-    el.className=d.sel==='FLOAT'?'warn':'ok';
-    el.textContent='SEL: '+d.sel+' · GPIO '+d.gpio;
+    const el=document.getElementById('receiverState');
+    el.className=(d.sel==='FLOAT'||d.pon==='FLOAT')?'warn':'ok';
+    el.textContent='SEL '+d.sel+' · GPIO '+d.selGpio+
+      ' | PON '+d.pon+' · GPIO '+d.ponGpio+
+      ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+
+      ' | eventi '+d.eventsPerSecond+'/s';
   }catch(e){
-    const el=document.getElementById('selState');el.className='err';el.textContent='Impossibile leggere lo stato SEL';
+    const el=document.getElementById('receiverState');el.className='err';el.textContent='Impossibile leggere lo stato del ricevitore';
   }
 }
 
-async function setSel(mode){
-  const msg=document.getElementById('selMsg');
-  msg.textContent='Impostazione SEL…';
+async function setReceiverPin(pin,mode){
+  const msg=document.getElementById('receiverMsg');
+  msg.textContent='Impostazione '+pin.toUpperCase()+'…';
   try{
-    const body=new URLSearchParams({mode});
-    const r=await fetch('/api/receiver/sel',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const body=new URLSearchParams({pin,mode});
+    const r=await fetch('/api/receiver/control',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
     const d=await r.json();
-    msg.textContent=d.message||'SEL aggiornato';
+    msg.textContent=d.message||'Controllo aggiornato';
     updateReceiver();
-  }catch(e){msg.textContent='Errore durante la modifica di SEL'}
+  }catch(e){msg.textContent='Errore durante la modifica del ricevitore'}
 }
 
 async function scanNetworks(){
@@ -224,32 +252,57 @@ void status() {
 
 void receiverStatus() {
     String json;
-    json.reserve(96);
+    json.reserve(220);
     json = "{\"sel\":\"";
-    if (selMode == SelMode::FLOATING) json += "FLOAT";
-    else if (selMode == SelMode::LOW_LEVEL) json += "LOW";
-    else json += "HIGH";
-    json += "\",\"gpio\":";
+    json += modeLabel(selMode);
+    json += "\",\"selGpio\":";
     json += String(PIN_RX_BAND);
+    json += ",\"pon\":\"";
+    json += modeLabel(ponMode);
+    json += "\",\"ponGpio\":";
+    json += String(PIN_RX_PON);
+    json += ",\"outLevel\":\"";
+    json += digitalRead(PIN_DCF77) ? "HIGH" : "LOW";
+    json += "\",\"outGpio\":";
+    json += String(PIN_DCF77);
+    json += ",\"eventsPerSecond\":";
+    json += String(pulseEventsPerSecond,1);
     json += "}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",json);
 }
 
-void setSel() {
-    if (!server.hasArg("mode")) {
-        server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
+bool parseDriveMode(const String &mode, PinDriveMode &out) {
+    if (mode == "float") out = PinDriveMode::FLOATING;
+    else if (mode == "low") out = PinDriveMode::LOW_LEVEL;
+    else if (mode == "high") out = PinDriveMode::HIGH_LEVEL;
+    else return false;
+    return true;
+}
+
+void setReceiverControl() {
+    if (!server.hasArg("pin") || !server.hasArg("mode")) {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametri pin/mode mancanti\"}");
         return;
     }
-    const String mode = server.arg("mode");
-    if (mode == "float") applySelMode(SelMode::FLOATING);
-    else if (mode == "low") applySelMode(SelMode::LOW_LEVEL);
-    else if (mode == "high") applySelMode(SelMode::HIGH_LEVEL);
+    const String pin = server.arg("pin");
+    PinDriveMode mode;
+    if (!parseDriveMode(server.arg("mode"), mode)) {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Valore mode non valido\"}");
+        return;
+    }
+    if (pin == "sel") applySelMode(mode);
+    else if (pin == "pon") applyPonMode(mode);
     else {
-        server.send(400,"application/json","{\"ok\":false,\"message\":\"Valore SEL non valido\"}");
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Pin non valido\"}");
         return;
     }
-    server.send(200,"application/json","{\"ok\":true,\"message\":\"SEL aggiornato\"}");
+    String msg = "{\"ok\":true,\"message\":\"";
+    msg += pin == "sel" ? "SEL" : "PON";
+    msg += " aggiornato a ";
+    msg += modeLabel(mode);
+    msg += "\"}";
+    server.send(200,"application/json",msg);
 }
 
 void wifiStatus() {
@@ -335,7 +388,7 @@ void portalBegin() {
     server.on("/",HTTP_GET,[](){server.send_P(200,"text/html; charset=utf-8",page);});
     server.on("/api/status",HTTP_GET,status);
     server.on("/api/receiver",HTTP_GET,receiverStatus);
-    server.on("/api/receiver/sel",HTTP_POST,setSel);
+    server.on("/api/receiver/control",HTTP_POST,setReceiverControl);
     server.on("/api/wifi",HTTP_GET,wifiStatus);
     server.on("/api/networks",HTTP_GET,scanNetworks);
     server.on("/api/wifi/connect",HTTP_POST,connectWifi);
@@ -346,9 +399,20 @@ void portalBegin() {
 void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver) {
     (void)receiver;
     currentDecoder=&decoder;
-    if (observedPulses != decoder.stats().totalPulses) {
-        observedPulses = decoder.stats().totalPulses;
-        lastPulseMs = millis();
+    const uint32_t now = millis();
+    const uint32_t total = decoder.stats().totalPulses;
+    if (observedPulses != total) {
+        observedPulses = total;
+        lastPulseMs = now;
+    }
+    if (!rateSampleMs) {
+        rateSampleMs = now;
+        rateSamplePulses = total;
+    } else if (now - rateSampleMs >= 1000) {
+        const uint32_t elapsed = now - rateSampleMs;
+        pulseEventsPerSecond = (total - rateSamplePulses) * 1000.0f / elapsed;
+        rateSampleMs = now;
+        rateSamplePulses = total;
     }
     server.handleClient();
 }
