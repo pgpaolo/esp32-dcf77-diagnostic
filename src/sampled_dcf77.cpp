@@ -248,15 +248,43 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
         return;
     }
 
-    // Udo Klein style stage-2 demodulation:
-    // reduce the 1 kHz samples to 10 ms booleans and inspect the two
-    // consecutive 100 ms halves after the detected phase.
-    const uint16_t start = currentPhaseBin;
-    const uint8_t firstCount  = majorityActiveBins(combined, start,      10);
-    const uint8_t secondCount = majorityActiveBins(combined, start + 10, 10);
+    // First measure the complete second. A DCF77 sync mark is the absence of
+    // the normal 100/200 ms pulse, so a second with substantial activity must
+    // never be promoted to SYNC merely because our 200 ms window was offset.
+    uint16_t wholeSecondActivity = 0;
+    for (uint8_t i = 0; i < 100; ++i) wholeSecondActivity += combined[i];
 
-    const bool firstActive  = firstCount  > 5;
-    const bool secondActive = secondCount > 5;
+    // Udo-style two-half decision, but allow the MASO apparent edge to move
+    // around the accumulated phase. Search +/-80 ms and keep the alignment
+    // with the strongest first 100 ms half.
+    uint16_t bestStart = currentPhaseBin;
+    int bestFirst = -1;
+    uint8_t bestFirstCount = 0;
+    uint8_t bestSecondCount = 0;
+
+    for (int8_t shift = -8; shift <= 8; ++shift) {
+        int candidate = static_cast<int>(currentPhaseBin) + shift;
+        while (candidate < 0) candidate += 100;
+        while (candidate >= 100) candidate -= 100;
+
+        const uint16_t st = static_cast<uint16_t>(candidate);
+        const uint8_t firstCount = majorityActiveBins(combined, st, 10);
+        const uint8_t secondCount = majorityActiveBins(combined, st + 10, 10);
+
+        // Prefer a clear active first half. Tie-break toward less late
+        // activity so a 100 ms pulse is not shifted into the second half.
+        const int score = static_cast<int>(firstCount) * 20 -
+                          static_cast<int>(secondCount);
+        if (score > bestFirst) {
+            bestFirst = score;
+            bestStart = st;
+            bestFirstCount = firstCount;
+            bestSecondCount = secondCount;
+        }
+    }
+
+    const bool firstActive  = bestFirstCount > 5;
+    const bool secondActive = bestSecondCount > 5;
 
     SampledDcfEvent e;
     e.startUs = syntheticStartUs;
@@ -264,42 +292,46 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     e.minuteMarker = false;
     e.markerCandidate = false;
 
-    // decoded_data equivalence:
-    // 3 => long tick / bit 1
-    // 2 => short tick / bit 0
-    // 1 => undefined
-    // 0 => sync-mark candidate
-    if (firstActive && secondActive) {
+    // Real sync candidate: require the WHOLE second to be nearly quiet.
+    // At 1 kHz the nominal marker can still contain a few noisy samples, but
+    // anything resembling a 100 ms pulse (e.g. ~100 active samples) is not sync.
+    const bool wholeSecondQuiet = wholeSecondActivity < 35;
+
+    if (wholeSecondQuiet) {
+        e.bit = -1;
+        e.pulseMs = 0;
+        e.markerCandidate = true;
+    } else if (firstActive && secondActive) {
         e.bit = 1;
         e.pulseMs = 200;
     } else if (firstActive && !secondActive) {
         e.bit = 0;
         e.pulseMs = 100;
-    } else if (!firstActive && secondActive) {
-        e.bit = -1;
-        e.pulseMs = 0;
     } else {
         e.bit = -1;
         e.pulseMs = 0;
-        e.markerCandidate = true;
     }
 
-    // Confidence is based on how far each 100 ms half is from the 50%
-    // decision boundary. A clean 0 is typically 10/0, a clean 1 is 10/10.
-    const int d1 = abs(static_cast<int>(firstCount) - 5);
-    const int d2 = abs(static_cast<int>(secondCount) - 5);
-    int conf = (d1 + d2) * 10;
-    if (conf > 100) conf = 100;
-
+    // Confidence from the selected 100/200 ms pattern.
+    int conf = 0;
     if (e.markerCandidate) {
-        // A sync candidate should be quiet in both halves.
-        conf = (20 - firstCount - secondCount) * 5;
-        if (conf < 0) conf = 0;
-    } else if (e.bit < 0) {
-        // Undefined is intentionally low confidence.
-        conf /= 2;
+        conf = 100 - static_cast<int>(wholeSecondActivity) * 2;
+        if (conf < 20) conf = 20;
+    } else if (e.bit == 0) {
+        conf = static_cast<int>(bestFirstCount) * 10 -
+               static_cast<int>(bestSecondCount) * 5;
+    } else if (e.bit == 1) {
+        conf = (static_cast<int>(bestFirstCount) +
+                static_cast<int>(bestSecondCount)) * 5;
+    } else {
+        const int d1 = abs(static_cast<int>(bestFirstCount) - 5);
+        const int d2 = abs(static_cast<int>(bestSecondCount) - 5);
+        conf = (d1 + d2) * 4;
         if (conf > 45) conf = 45;
     }
+
+    if (conf < 0) conf = 0;
+    if (conf > 100) conf = 100;
     e.confidence = static_cast<uint8_t>(conf);
 
     updateMinutePhase(e);
@@ -308,8 +340,6 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     e.secondQuality = minuteQuality;
     e.secondIndex = minutePhaseLocked ? decodedSecondForRawTick(rawSecondTick) : 255;
 
-    // Only the already-locked second 59 is promoted from candidate to a real
-    // minute marker. This prevents isolated quiet periods from starting frames.
     if (e.secondLocked && e.secondIndex == 59) {
         e.minuteMarker = true;
         e.bit = -1;
