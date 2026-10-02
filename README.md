@@ -7,8 +7,8 @@ e portale Wi-Fi di diagnostica. Compilazione: `pio run -e hw364a`.
 Collegarsi alla rete aperta `DCF77-HW364A-xxxxxx` e aprire http://192.168.4.1 .
 Dal portale è possibile scansionare le reti Wi-Fi locali, selezionare un SSID e configurare la connessione STA. L'access point di configurazione resta attivo anche quando il dispositivo è collegato alla LAN.
 
-Vedere [istruzioni HW364A](docs/HW364A.md) prima di collegare il ricevitore MASO-S-R1:
-il pinout PCB è confermato come SEL - OUT - PON - GND - VDD. Sul profilo HW364A il cablaggio è SEL=D2/GPIO4, OUT=D7/GPIO13, PON=D1/GPIO5; la polarità elettrica di SEL/PON resta verificabile dal portale.
+Vedere [istruzioni HW364A](docs/HW364A.md) prima di collegare il ricevitore MASO-S-R1.
+La serigrafia riporta SEL - OUT - PON - GND - VDD, ma l'associazione fisica di SEL e OUT sul connettore sfalsato è ancora in verifica. Nel profilo HW364A D2/GPIO4 e D7/GPIO13 sono quindi trattati come linee candidate e il portale consente di provare SEL e decoder in modo indipendente.
 I profili ESP32 descritti sotto conservano display TFT e comandi originali.
 
 Portable long-wave time-signal analyzer for the classic **LILYGO / TTGO T-Display ESP32** with integrated **1.14-inch ST7789 240x135 TFT**.
