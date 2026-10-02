@@ -452,6 +452,8 @@ void receiverStatus() {
     json += String(PIN_DCF77);
     json += ",\"outMode\":\"";
     json += outPullupEnabled ? "INPUT_PULLUP" : "INPUT";
+    json += "\",\"polarity\":\"";
+    json += dcfActiveLowSelected ? "LOW" : "HIGH";
     json += "\",\"ponStartActive\":";
     json += ponStartActive ? "true" : "false";
     json += ",\"ponStartRemainingMs\":";
