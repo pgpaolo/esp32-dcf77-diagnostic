@@ -17,7 +17,7 @@ uint32_t ponStartBeganMs = 0;
 constexpr uint32_t PON_START_HIGH_MS = 3000;
 enum class PinDriveMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
 PinDriveMode selMode = PinDriveMode::FLOATING;
-PinDriveMode ponMode = PinDriveMode::FLOATING;
+PinDriveMode ponMode = PinDriveMode::LOW_LEVEL;
 
 const char *modeLabel(PinDriveMode mode) {
     if (mode == PinDriveMode::FLOATING) return "FLOAT";
@@ -95,6 +95,10 @@ select,input,button{box-sizing:border-box;width:100%;padding:11px;border-radius:
 button{cursor:pointer;background:#245a78}button:disabled{opacity:.55;cursor:default}
 .ok{color:#8fe3a1}.warn{color:#ffd580}.err{color:#ff9a9a}
 pre{white-space:pre-wrap;overflow-wrap:anywhere}
+table{width:100%;border-collapse:collapse;font-size:14px;background:#193346;border-radius:12px;overflow:hidden}
+th,td{padding:8px 10px;border-bottom:1px solid #2b4b5e;text-align:right}
+th:first-child,td:first-child{text-align:left}
+.good{color:#8fe3a1}.bad{color:#ff9a9a}.neutral{color:#ffd580}
 </style>
 <h1>DCF77 · HW-364A</h1>
 <div id="clock">--:--:--</div><p id="date">Attesa ricezione</p><p id="status">Connessione…</p>
@@ -146,6 +150,14 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}
 </div>
 
 <dl id="metrics"></dl>
+
+<h2>Monitor impulsi DCF77</h2>
+<p class="muted">Ultimi impulsi ricevuti, dal più recente. Un DCF77 pulito dovrebbe mostrare larghezze ~100/200 ms e periodo ~1000 ms; il marker di minuto produce un intervallo ~2000 ms.</p>
+<table>
+<thead><tr><th>Età</th><th>Impulso ms</th><th>Periodo ms</th><th>Bit</th><th>Timing</th><th>Frame</th></tr></thead>
+<tbody id="pulseRows"><tr><td colspan="6">Attesa impulsi…</td></tr></tbody>
+</table>
+
 <h2>Ultimo frame</h2><pre id="frame">—</pre>
 
 <script>
@@ -237,6 +249,36 @@ async function startPon(){
   }catch(e){btn.disabled=false;msg.textContent='Errore durante START PON'}
 }
 
+async function updatePulses(){
+  if(document.hidden)return;
+  try{
+    const r=await fetch('/api/pulses',{cache:'no-store'});
+    if(!r.ok)throw Error();
+    const d=await r.json(),body=document.getElementById('pulseRows');
+    body.replaceChildren();
+    if(!d.pulses.length){
+      const tr=document.createElement('tr'),td=document.createElement('td');
+      td.colSpan=6;td.textContent='Attesa impulsi…';tr.append(td);body.append(tr);return;
+    }
+    d.pulses.forEach(p=>{
+      const tr=document.createElement('tr');
+      const vals=[
+        (p.ageMs/1000).toFixed(1)+' s',
+        p.widthMs.toFixed(3),
+        p.periodMs.toFixed(3),
+        p.bitLabel,
+        p.timingLabel,
+        p.framePos
+      ];
+      vals.forEach((v,i)=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});
+      tr.className=p.valid&&p.secondTimingOk?'good':(p.glitch?'bad':'neutral');
+      body.append(tr);
+    });
+  }catch(e){
+    const body=document.getElementById('pulseRows');body.innerHTML='<tr><td colspan="6">Errore lettura impulsi</td></tr>';
+  }
+}
+
 async function scanNetworks(){
   const b=document.getElementById('scanBtn'), msg=document.getElementById('wifiMsg'), sel=document.getElementById('ssid');
   b.disabled=true;msg.textContent='Scansione in corso…';
@@ -271,8 +313,9 @@ async function connectWifi(){
 setInterval(update,2000);
 setInterval(updateWifi,3000);
 setInterval(updateReceiver,3000);
-document.addEventListener('visibilitychange',()=>{update();updateWifi();updateReceiver()});
-update();updateWifi();updateReceiver();
+setInterval(updatePulses,2000);
+document.addEventListener('visibilitychange',()=>{update();updateWifi();updateReceiver();updatePulses()});
+update();updateWifi();updateReceiver();updatePulses();
 </script></html>)HTML";
 
 void status() {
@@ -305,6 +348,40 @@ void status() {
     const int8_t *bits = currentDecoder->lastFrameBits();
     for (uint8_t i=0;i<currentDecoder->lastFrameCount();++i) json += bits[i]<0?'?':(bits[i]?'1':'0');
     json += "\"}";
+    server.sendHeader("Cache-Control","no-store");
+    server.send(200,"application/json",json);
+}
+
+void pulseStatus() {
+    if (!currentDecoder) { server.send(503,"application/json","{}"); return; }
+    String json;
+    json.reserve(3600);
+    json = "{\"pulses\":[";
+    const uint8_t count = currentDecoder->recentPulseCount();
+    const uint32_t now = millis();
+    for (uint8_t i = 0; i < count; ++i) {
+        PulseTrace p;
+        if (!currentDecoder->recentPulse(i, p)) continue;
+        if (i) json += ',';
+        const bool glitch = p.widthUs < 30000;
+        json += "{\"ageMs\":"; json += String(now - p.capturedMs);
+        json += ",\"widthMs\":"; json += String(p.widthUs / 1000.0, 3);
+        json += ",\"periodMs\":"; json += String(p.periodUs / 1000.0, 3);
+        json += ",\"bitLabel\":\"";
+        if (p.bit == 0) json += "0";
+        else if (p.bit == 1) json += "1";
+        else json += "?";
+        json += "\",\"valid\":"; json += p.valid ? "true" : "false";
+        json += ",\"glitch\":"; json += glitch ? "true" : "false";
+        json += ",\"secondTimingOk\":"; json += p.secondTimingOk ? "true" : "false";
+        json += ",\"timingLabel\":\"";
+        if (p.minuteGap) json += "MIN";
+        else if (p.secondTimingOk) json += "1s OK";
+        else json += "fuori";
+        json += "\",\"framePos\":"; json += String(p.framePos);
+        json += "}";
+    }
+    json += "]}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",json);
 }
@@ -471,6 +548,10 @@ void connectWifi() {
 }
 
 void portalBegin() {
+    selMode = PinDriveMode::FLOATING;
+    ponMode = PinDriveMode::LOW_LEVEL;
+    outPullupEnabled = false;
+
     WiFi.persistent(false);
     WiFi.mode(WIFI_AP_STA);
 
@@ -486,6 +567,7 @@ void portalBegin() {
 
     server.on("/",HTTP_GET,[](){server.send_P(200,"text/html; charset=utf-8",page);});
     server.on("/api/status",HTTP_GET,status);
+    server.on("/api/pulses",HTTP_GET,pulseStatus);
     server.on("/api/receiver",HTTP_GET,receiverStatus);
     server.on("/api/receiver/control",HTTP_POST,setReceiverControl);
     server.on("/api/receiver/out",HTTP_POST,setOutMode);
