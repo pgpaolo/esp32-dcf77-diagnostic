@@ -72,7 +72,9 @@ def main():
     stream = "".join(REAL_CAPTURE)
 
     # Sanity check the published frames.
-    assert all(len(frame) == 61 for frame in REAL_CAPTURE)
+    # A complete DCF77 minute has 60 second positions (0..59). The source
+    # represents the missing pulse at second 59 with the final character '2'.
+    assert all(len(frame) == 60 for frame in REAL_CAPTURE)
     assert all(frame[-1] == "2" for frame in REAL_CAPTURE)
 
     for expected in stream:
