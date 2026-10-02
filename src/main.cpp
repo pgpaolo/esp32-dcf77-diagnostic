@@ -288,14 +288,13 @@ void loop() {
     while (sampledDcfPopEvent(sampled)) {
         if (!receiver.ready() || decoder.signalMode() != SignalMode::DCF77) continue;
 
-        // Direct sampled-symbol path: preserve the phase decoder's exact
-        // second index and confidence instead of fabricating edge timings.
-        if (sampled.secondLocked) {
-            decoder.processSampledSymbol(sampled.secondIndex,
-                                         sampled.bit,
-                                         sampled.confidence,
-                                         sampled.minuteMarker);
-        }
+        // Always expose sampled symbols to diagnostics. Before the minute
+        // phase is locked secondIndex is 255 ('?'); the decoder records the
+        // symbol but does not place it into a frame yet.
+        decoder.processSampledSymbol(sampled.secondLocked ? sampled.secondIndex : 255,
+                                     sampled.bit,
+                                     sampled.confidence,
+                                     sampled.minuteMarker);
     }
 #else
     RawPulse p;
