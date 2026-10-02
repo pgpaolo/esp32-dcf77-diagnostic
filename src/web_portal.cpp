@@ -284,7 +284,7 @@ th:first-child,td:first-child{text-align:left}
 <p id="recordState" class="muted">Nessuna registrazione</p>
 <a href="/api/recording/download" download>Scarica registrazione OUT</a>
 
-<h2>Scope DCF77 · 1 secondo</h2>
+<h2>Scope OUT · 1 secondo</h2>
 <p class="muted">Campionamento hardware di OUT a 1 kHz, indipendente da Wi-Fi/web/OLED. 100 celle da 10 ms: "-" = inattivo, 1..9 = attività parziale, X = attivo per tutta la cella. La stessa acquisizione alimenta il decoder DCF77 o MSF selezionato.</p>
 <pre id="scopeLine">Attesa primo secondo completo…</pre>
 <p id="scopeInfo" class="muted"></p>
@@ -334,8 +334,8 @@ async function update(){
     document.getElementById('clock').textContent=d.time||'--:--:--';
     document.getElementById('date').textContent=d.date||'Attesa frame valido';
     document.getElementById('status').textContent=d.signalRecent
-      ? (d.phaseLocked ? (d.clockAvailable?'Fase DCF77 agganciata · orologio disponibile':'Fase secondo agganciata · acquisizione minuto')
-          : 'Attività su OUT · segnale DCF77 non ancora agganciato')
+      ? (d.phaseLocked ? (d.clockAvailable?'Fase '+d.protocol+' agganciata · orologio disponibile':'Fase secondo agganciata · acquisizione minuto')
+          : 'Attività su OUT · segnale '+d.protocol+' non ancora agganciato')
       : (d.clockAvailable?'Nessuna transizione recente · orologio dall’ultima sincronizzazione':'Nessuna transizione recente su OUT');
     const list=document.getElementById('metrics');list.replaceChildren();
     for(const [k,l]of Object.entries(labels)){const a=document.createElement('dt'),b=document.createElement('dd');a.textContent=l;b.textContent=k==='minuteSynced'?(d[k]?'AGGANCIATO':'IN ATTESA'):(d[k]??'—');list.append(a,b)}
@@ -547,7 +547,7 @@ void status() {
     json += ",\"decodedSignalRecent\":";
     json += (s.totalPulses && millis()-lastPulseMs < 3500) ? "true" : "false";
     json += ",\"phaseLocked\":"; json += (selectedSignalMode==SignalMode::MSF_60KHZ ? s.msfPhaseLocked : snap.phaseLocked) ? "true" : "false";
-    json += ",\"secondLocked\":"; json += snap.secondLocked ? "true" : "false";
+    json += ",\"secondLocked\":"; json += (selectedSignalMode==SignalMode::MSF_60KHZ ? s.minuteSynced : snap.secondLocked) ? "true" : "false";
     char time[16] = "", date[32] = "";
     if (clock) {
         snprintf(time,sizeof(time),"%02d:%02d:%02d",dt.hour,dt.minute,dt.second);
@@ -643,7 +643,7 @@ void scopeStatus() {
     json += ",\"secondQuality\":";
     json += String(snap.secondQuality);
     json += ",\"secondLocked\":";
-    json += snap.secondLocked ? "true" : "false";
+    json += (msf ? msfStats->minuteSynced : snap.secondLocked) ? "true" : "false";
     json += ",\"minuteBestCandidate\":";
     json += String(snap.minuteBestCandidate);
     json += ",\"minuteScoreMax\":";
