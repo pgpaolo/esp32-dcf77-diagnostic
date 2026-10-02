@@ -43,6 +43,29 @@ At **77.5 kHz** the firmware performs complete DCF77 decoding. At **60 kHz** it 
 - HW-364A captive-style local portal with open AP, Wi-Fi scan and LAN connection setup
 - 1 kHz sampled one-second scope for receiver/wiring troubleshooting
 
+## Real DCF77 reference fixture
+
+The repository includes `tools/dcf77_reference_fixture.py`, an offline 1 kHz
+reference test built from a real DCF77 GNU Radio capture published by DJ3CE.
+The original capture encodes `0` and `1` data bits and uses `2` for the
+missing pulse at second 59. The fixture converts those symbols to the same
+logical 1 kHz / 10 ms-bin representation used by the HW-364A sampler.
+
+Run it with:
+
+```bash
+python tools/dcf77_reference_fixture.py
+```
+
+A passing test verifies that 100 ms pulses decode as 0, 200 ms pulses as 1,
+the missing pulse becomes a provisional minute marker, and the marker is
+confirmed by the following fixed DCF77 second-0 bit.
+
+Reference capture:
+- https://dj3ce.darc.de/projects/dcf77/
+- https://dj3ce.darc.de/files/dcf77/dcf77_data.txt
+
+
 ## Hardware target
 
 Classic LILYGO / TTGO T-Display ESP32:
