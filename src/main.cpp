@@ -33,8 +33,10 @@ uint32_t pageButtonDownMs = 0;
 bool blButtonPrev = true;
 uint32_t blButtonChangeMs = 0;
 
+volatile bool dcfActiveLowRuntime = DCF77_ACTIVE_LOW;
+
 inline bool IRAM_ATTR dcfActiveLevel(int level) {
-    return DCF77_ACTIVE_LOW ? (level == LOW) : (level == HIGH);
+    return dcfActiveLowRuntime ? (level == LOW) : (level == HIGH);
 }
 
 int32_t IRAM_ATTR normalizePpsOffset(uint32_t dcfUs, uint32_t ppsUs) {
@@ -269,6 +271,15 @@ void loop() {
     ui.draw(decoder, analogRaw, receiver.bandLabel(), receiver.ready());
 
     portalPoll(decoder, receiver);
+
+    const bool requestedPolarity = portalDcfActiveLow();
+    if (requestedPolarity != dcfActiveLowRuntime) {
+        dcfActiveLowRuntime = requestedPolarity;
+        decoder.reset();
+        clearPulseCapture();
+        Serial.printf("MASO OUT polarity changed: ACTIVE %s\n",
+                      dcfActiveLowRuntime ? "LOW" : "HIGH");
+    }
 
     if (portalTakeReceiverResetRequest()) {
         decoder.reset();
