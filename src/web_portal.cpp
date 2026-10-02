@@ -158,7 +158,8 @@ th:first-child,td:first-child{text-align:left}
 <tbody id="pulseRows"><tr><td colspan="6">Attesa impulsi…</td></tr></tbody>
 </table>
 
-<h2>Ultimo frame</h2><pre id="frame">—</pre>
+<h2>Frame corrente</h2><pre id="liveFrame">—</pre>
+<h2>Ultimo frame completato</h2><pre id="frame">—</pre>
 
 <script>
 const labels={quality:'Qualità temporale (%)',frameBitCount:'Posizione frame',lastBit:'Ultimo bit',pulseMs:'Impulso (ms)',periodMs:'Periodo (ms)',jitterMs:'Jitter (ms)',rmsMs:'Jitter RMS (ms)',validPulses:'Impulsi validi',invalidPulses:'Impulsi invalidi',validFrames:'Frame validi',invalidFrames:'Frame invalidi',parityErrors:'Errori parità',timingErrors:'Errori temporali',glitches:'Glitch',frameAgeSeconds:'Età ultimo frame (s)',ppsUs:'Offset PPS (µs)',freeHeap:'RAM libera (byte)'};
@@ -174,7 +175,8 @@ async function update(){
     document.getElementById('status').textContent=d.signalRecent?(d.clockAvailable?'Segnale presente · orologio disponibile':'Segnale presente · acquisizione'):'Segnale assente o non ancora ricevuto';
     const list=document.getElementById('metrics');list.replaceChildren();
     for(const [k,l]of Object.entries(labels)){const a=document.createElement('dt'),b=document.createElement('dd');a.textContent=l;b.textContent=d[k]??'—';list.append(a,b)}
-    document.getElementById('frame').textContent=d.frame||'Nessun frame ricevuto';
+    document.getElementById('liveFrame').textContent=d.liveFrame||'Nessun frame corrente';
+    document.getElementById('frame').textContent=d.frame||'Nessun frame completato';
   }catch(e){document.getElementById('status').textContent='Connessione al dispositivo persa'}
 }
 
@@ -344,7 +346,10 @@ void status() {
     json += ",\"frameAgeSeconds\":";
     json += s.validFrames ? String((millis()-s.lastValidFrameMs)/1000) : String("null");
     json += ",\"ppsUs\":"; json += s.lastPpsOffsetUs == INT32_MIN ? String("null") : String(s.lastPpsOffsetUs);
-    json += ",\"frame\":\"";
+    json += ",\"liveFrame\":\"";
+    const int8_t *liveBits = currentDecoder->currentFrameBits();
+    for (uint8_t i=0;i<currentDecoder->currentFrameCount();++i) json += liveBits[i]<0?'?':(liveBits[i]?'1':'0');
+    json += "\",\"frame\":\"";
     const int8_t *bits = currentDecoder->lastFrameBits();
     for (uint8_t i=0;i<currentDecoder->lastFrameCount();++i) json += bits[i]<0?'?':(bits[i]?'1':'0');
     json += "\"}";
