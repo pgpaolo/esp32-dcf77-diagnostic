@@ -12,6 +12,7 @@ float pulseEventsPerSecond = 0.0f;
 bool receiverResetRequested = false;
 uint32_t receiverChangedMs = 0;
 bool outPullupEnabled = DCF77_USE_INTERNAL_PULLUP;
+bool dcfActiveLowSelected = DCF77_ACTIVE_LOW;
 bool ponStartActive = false;
 uint32_t ponStartBeganMs = 0;
 constexpr uint32_t PON_START_HIGH_MS = 3000;
@@ -141,6 +142,11 @@ th:first-child,td:first-child{text-align:left}
 <div><button type="button" onclick="setOutMode('input')">OUT INPUT</button></div>
 <div><button type="button" onclick="setOutMode('pullup')">OUT INPUT_PULLUP</button></div>
 </div>
+<p><b>Polarità OUT</b></p>
+<div class="row">
+<div><button type="button" onclick="setPolarity('low')">ACTIVE LOW</button></div>
+<div><button type="button" onclick="setPolarity('high')">ACTIVE HIGH</button></div>
+</div>
 
 <p><b>Sequenza di avvio PON</b></p>
 <div class="row">
@@ -207,7 +213,7 @@ async function updateReceiver(){
     el.className=(d.sel==='FLOAT'||d.pon==='FLOAT')?'warn':'ok';
     el.textContent='SEL '+d.sel+' · GPIO '+d.selGpio+
       ' | PON '+d.pon+' · GPIO '+d.ponGpio+
-      ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+' ('+d.outMode+')'+
+      ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+' ('+d.outMode+', ACTIVE '+d.polarity+')'+
       ' | eventi '+d.eventsPerSecond+'/s'+
       ' | da modifica '+d.secondsSinceChange+' s'+
       (d.ponStartActive?' | START PON in corso '+d.ponStartRemainingMs+' ms':'');
@@ -238,6 +244,18 @@ async function setOutMode(mode){
     msg.textContent=d.message||'OUT aggiornato';
     updateReceiver();
   }catch(e){msg.textContent='Errore durante la modifica di OUT'}
+}
+
+async function setPolarity(mode){
+  const msg=document.getElementById('receiverMsg');
+  msg.textContent='Impostazione polarità OUT…';
+  try{
+    const body=new URLSearchParams({mode});
+    const r=await fetch('/api/receiver/polarity',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const d=await r.json();
+    msg.textContent=d.message||'Polarità aggiornata';
+    updateReceiver();
+  }catch(e){msg.textContent='Errore durante la modifica della polarità'}
 }
 
 async function startPon(){
@@ -480,6 +498,25 @@ void setOutMode() {
           : "{\"ok\":true,\"message\":\"OUT impostato su INPUT_PULLUP\"}");
 }
 
+void setPolarity() {
+    if (!server.hasArg("mode")) {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
+        return;
+    }
+    const String mode = server.arg("mode");
+    if (mode == "low") dcfActiveLowSelected = true;
+    else if (mode == "high") dcfActiveLowSelected = false;
+    else {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Polarità non valida\"}");
+        return;
+    }
+    resetReceiverDiagnostics();
+    server.send(200,"application/json",
+        dcfActiveLowSelected
+          ? "{\"ok\":true,\"message\":\"OUT impostato ACTIVE LOW\"}"
+          : "{\"ok\":true,\"message\":\"OUT impostato ACTIVE HIGH\"}");
+}
+
 void startPonSequence() {
     applyPonMode(PinDriveMode::HIGH_LEVEL);
     ponStartBeganMs = millis();
@@ -579,6 +616,7 @@ void portalBegin() {
     server.on("/api/receiver",HTTP_GET,receiverStatus);
     server.on("/api/receiver/control",HTTP_POST,setReceiverControl);
     server.on("/api/receiver/out",HTTP_POST,setOutMode);
+    server.on("/api/receiver/polarity",HTTP_POST,setPolarity);
     server.on("/api/receiver/pon-start",HTTP_POST,startPonSequence);
     server.on("/api/wifi",HTTP_GET,wifiStatus);
     server.on("/api/networks",HTTP_GET,scanNetworks);
@@ -621,10 +659,15 @@ bool portalTakeReceiverResetRequest() {
     return requested;
 }
 
+bool portalDcfActiveLow() {
+    return dcfActiveLowSelected;
+}
+
 const char *portalAddress() { return "192.168.4.1"; }
 #else
 void portalBegin() {}
 void portalPoll(const DCF77Decoder &, const ReceiverControl &) {}
 bool portalTakeReceiverResetRequest() { return false; }
+bool portalDcfActiveLow() { return DCF77_ACTIVE_LOW; }
 const char *portalAddress() { return ""; }
 #endif
