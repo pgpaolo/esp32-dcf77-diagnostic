@@ -50,7 +50,7 @@ void sampleMs(bool active, DCF77Decoder &decoder) {
     }
 }
 
-void testCompleteStream(int phaseMs) {
+void testCompleteStream(int phaseMs, int shortMs = 100, int longMs = 200) {
     testMicros = 0; testPinLevel = LOW;
     sampledDcfBegin(13, false);
     DCF77Decoder decoder;
@@ -58,7 +58,7 @@ void testCompleteStream(int phaseMs) {
     for (int m=0;m<8;++m) {
         auto bits = frameFor(34+m);
         for (int sec=0;sec<60;++sec) {
-            int width = sec==59 ? 0 : (bits[sec] ? 200 : 100);
+            int width = sec==59 ? 0 : (bits[sec] ? longMs : shortMs);
             for (int ms=0;ms<1000;++ms) sampleMs(ms<width,decoder);
         }
     }
@@ -149,6 +149,20 @@ int main() {
     try {
         testBoundaryGate();
         for (int phase : {0,20,500,940,950,960,990}) testCompleteStream(phase);
+        for (int phase : {0,950,990}) {
+            testCompleteStream(phase,40,140);
+            testCompleteStream(phase,130,250);
+        }
+        uint8_t pulse[200]{};
+        for (int bins : {4,13,14,25}) {
+            for (int i=0;i<200;++i) pulse[i] = i>=95 && i<95+bins ? 10 : 0;
+            require(isolatedPulseBit(pulse,95)==(bins<=13 ? 0 : 1),
+                "manufacturer duration boundary misclassified");
+        }
+        for (int i=0;i<200;++i) pulse[i] = i>=20 && i<23 ? 10 : 0;
+        require(isolatedPulseBit(pulse,20)==-1,"30ms glitch accepted as isolated pulse");
+        pulse[27]=10;
+        require(isolatedPulseBit(pulse,20)==-1,"fragmented burst accepted as isolated pulse");
         testFrameValidation();
         testNoiseAndActivity();
         std::cout << "PASS: production sampler and decoder regression tests\n";

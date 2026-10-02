@@ -1,4 +1,5 @@
 #include "sampled_dcf77.h"
+#include "config.h"
 
 #if defined(ESP8266)
 #include <string.h>
@@ -218,7 +219,31 @@ bool candidateRisingEdge(const uint8_t combined[200], uint8_t idx, uint8_t &stre
     }
 
     strength = phaseRunStrength(combined, idx);
-    return strength >= 6;
+    return strength >= 4; // MAS6180B: a valid short pulse may be only 40 ms.
+}
+
+// Recognize one uninterrupted pulse near the predicted phase. Only use this
+// duration decision when the following 300 ms contain no other active block;
+// fragmented signals retain the integrative classifier below. Durations are
+// quantized to 10 ms, not precision measurements of the receiver output.
+int8_t isolatedPulseBit(const uint8_t filtered[200], uint8_t phase) {
+    for (int offset = -3; offset <= 3; ++offset) {
+        const int start = static_cast<int>(phase) + offset;
+        if (start < 0 || start >= 100 || !filtered[start]) continue;
+        const bool preceding = start == 0 ? previousWindowPrecedingBin > 5
+                                         : filtered[start - 1] != 0;
+        if (preceding) continue;
+        int end = start;
+        while (end < start + 30 && filtered[end]) ++end;
+        if (end == start + 30) continue;
+        bool extra = false;
+        for (int i = end; i < start + 30; ++i) extra |= filtered[i] != 0;
+        if (extra) continue;
+        const uint32_t widthUs = static_cast<uint32_t>(end - start) * 10000UL;
+        if (widthUs >= DCF_ZERO_MIN_US && widthUs <= DCF_ZERO_MAX_US) return 0;
+        if (widthUs >= DCF_ONE_MIN_US && widthUs <= DCF_ONE_MAX_US) return 1;
+    }
+    return -1;
 }
 
 void findPhase(const uint8_t combined[200]) {
@@ -236,7 +261,7 @@ void findPhase(const uint8_t combined[200]) {
     const bool rawPlausible =
         (filteredEdges <= 3) &&
         (filteredBlocks <= 3) &&
-        (filteredLongest >= 7); // >=70 ms
+        (filteredLongest >= 4); // >=40 ms; MAS6180B recognition limit, table 5.
 
     if (!rawPlausible) {
         ++snapshotState.rejectedWindows;
@@ -567,8 +592,12 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     // be confirmed by the following fixed DCF77 bit 0.
     const uint8_t alignedActivity = bestFirstCount + bestSecondCount;
     const bool alignedQuiet = alignedActivity <= 2;
+    const int8_t durationBit = isolatedPulseBit(filtered, currentPhaseBin);
 
-    if (alignedQuiet) {
+    if (durationBit >= 0) {
+        e.bit = durationBit;
+        e.pulseMs = durationBit ? 200 : 100; // nominal symbol width, not measured
+    } else if (alignedQuiet) {
         e.bit = -1;
         e.pulseMs = 0;
         e.markerCandidate = true;
@@ -585,7 +614,9 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
 
     // Confidence from the selected 100/200 ms pattern.
     int conf = 0;
-    if (e.markerCandidate) {
+    if (durationBit >= 0) {
+        conf = 70; // coherent isolated pulse within receiver tolerance limits
+    } else if (e.markerCandidate) {
         conf = 100 - static_cast<int>(alignedActivity) * 20;
         if (conf < 20) conf = 20;
     } else if (e.bit == 0) {

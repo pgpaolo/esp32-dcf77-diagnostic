@@ -8,6 +8,9 @@ Collegarsi alla rete aperta `DCF77-HW364A-xxxxxx` e aprire http://192.168.4.1 .
 Dal portale è possibile scansionare le reti Wi-Fi locali, selezionare un SSID e configurare la connessione STA. L'access point di configurazione resta attivo anche quando il dispositivo è collegato alla LAN.
 
 Vedere [istruzioni HW364A](docs/HW364A.md) prima di collegare il ricevitore MASO-S-R1.
+Le [note sui ricevitori e sulla ricerca DCF77](docs/DCF77_RECEIVER_RESEARCH.md)
+documentano le tolleranze MAS6180B applicate al profilo HW364A, i limiti
+dell'identificazione del modulo e i progetti di riferimento.
 La serigrafia riporta SEL - OUT - PON - GND - VDD, ma l'associazione fisica di SEL e OUT sul connettore sfalsato è ancora in verifica. Nel profilo HW364A D2/GPIO4 e D7/GPIO13 sono quindi trattati come linee candidate e il portale consente di provare SEL e decoder in modo indipendente.
 I profili ESP32 descritti sotto conservano display TFT e comandi originali.
 

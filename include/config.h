@@ -90,10 +90,20 @@ static_assert(!PPS_ENABLED, "Assign an interrupt-capable unused GPIO before enab
 constexpr bool PPS_RISING_EDGE = true;
 
 // DCF77 decoder timing windows.
+#if defined(ESP8266)
+// MAS6180B DA6180B.005, table 5 (page 8). The MASO-S-R1 IC has not
+// been identified: these are receiver-tolerant software limits, not proof
+// of its electrical specification. Keep the 130..140 ms ambiguity gap.
+constexpr uint32_t DCF_ZERO_MIN_US = 40000;
+constexpr uint32_t DCF_ZERO_MAX_US = 130000;
+constexpr uint32_t DCF_ONE_MIN_US  = 140000;
+constexpr uint32_t DCF_ONE_MAX_US  = 250000;
+#else
 constexpr uint32_t DCF_ZERO_MIN_US = 60000;
 constexpr uint32_t DCF_ZERO_MAX_US = 145000;
 constexpr uint32_t DCF_ONE_MIN_US  = 155000;
 constexpr uint32_t DCF_ONE_MAX_US  = 245000;
+#endif
 constexpr uint32_t DCF_SECOND_MIN_US = 850000;
 constexpr uint32_t DCF_SECOND_MAX_US = 1150000;
 constexpr uint32_t DCF_MINUTE_GAP_MIN_US = 1500000;
