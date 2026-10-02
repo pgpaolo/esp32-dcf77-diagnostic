@@ -41,6 +41,7 @@ At **77.5 kHz** the firmware performs complete DCF77 decoding. At **60 kHz** it 
 - serial CSV-like diagnostic logging
 - four TFT pages selected with the built-in button
 - HW-364A captive-style local portal with open AP, Wi-Fi scan and LAN connection setup
+- 1 kHz sampled one-second scope for receiver/wiring troubleshooting
 
 ## Hardware target
 
