@@ -79,6 +79,9 @@ struct DecoderStats {
     uint8_t recoveredBits = 0;
     uint8_t uncertainBits = 0;
     uint8_t acquisitionConfidence = 0;
+    uint8_t fieldConfidence = 0;
+    uint8_t predictionMatch = 0;
+    uint32_t sampledSymbols = 0;
 };
 
 class DCF77Decoder {
@@ -90,6 +93,7 @@ public:
     SignalMode signalMode() const { return _mode; }
 
     void processPulse(const RawPulse &pulse);
+    void processSampledSymbol(uint8_t secondIndex, int8_t bit, uint8_t confidence, bool minuteMarker);
     const DecoderStats &stats() const { return _stats; }
     const DCFDateTime &decodedTime() const { return _decoded; }
 
@@ -146,6 +150,9 @@ private:
                           bool secondTimingOk, bool minuteGap);
     void finalizeFrame(uint32_t newMinuteStartUs);
     bool decodeFrame(DCFDateTime &out);
+    bool decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidence);
+    int scoreExpectedBit(int position, int expected) const;
+    int scoreFieldValue(const int *positions, const int *weights, size_t n, int value, int parityPos) const;
     void updateQuality(const RawPulse &pulse, int bit, bool valid, bool normalSecond);
     void updateJitter(int32_t jitterUs);
     void setClockBase(const DCFDateTime &dt, uint32_t edgeStartUs);
