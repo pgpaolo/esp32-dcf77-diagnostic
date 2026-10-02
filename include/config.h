@@ -19,8 +19,8 @@ constexpr uint32_t OLED_PAGE_MS = 5000;
 constexpr uint8_t PIN_BUTTON_PAGE = 0; // optional BOOT: do not hold at reset
 constexpr uint8_t PIN_BUTTON_BL = 255; // absent
 constexpr uint8_t PIN_DCF77 = 13;
-constexpr uint8_t PIN_RX_BAND = 5; // reserved SEL, not driven
-constexpr uint8_t PIN_RX_PON = 4;  // reserved PON, not driven
+constexpr uint8_t PIN_RX_BAND = 4; // D2 -> MASO SEL
+constexpr uint8_t PIN_RX_PON = 5;  // D1 -> MASO PON / ENABLE
 constexpr uint8_t PIN_DCF77_ANALOG = A0;
 constexpr uint8_t PIN_PPS = 16; // PPS disabled: GPIO16 has no edge interrupt
 static_assert(DCF_RX_DUAL_CMAX == 0, "HW364A uses unverified receiver controls; dual CMAX unsupported");
