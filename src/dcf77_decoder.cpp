@@ -73,6 +73,7 @@ void DCF77Decoder::recordPulseTrace(const RawPulse &pulse, int bit, bool valid,
     t.valid = valid;
     t.secondTimingOk = secondTimingOk;
     t.minuteGap = minuteGap;
+    t.markerCandidate = false;
     t.sampled = false;
     t.confidence = valid ? 100 : 0;
     t.secondIndex = 255;
@@ -83,7 +84,8 @@ void DCF77Decoder::recordPulseTrace(const RawPulse &pulse, int bit, bool valid,
 }
 
 void DCF77Decoder::recordSampledTrace(uint8_t secondIndex, int8_t bit,
-                                      uint8_t confidence, bool minuteMarker) {
+                                      uint8_t confidence, bool minuteMarker,
+                                      bool markerCandidate) {
     PulseTrace &t = _pulseTrace[_pulseTraceHead];
     t.capturedMs = millis();
     t.widthUs = bit == 0 ? 100000UL : (bit == 1 ? 200000UL : 0UL);
@@ -92,6 +94,7 @@ void DCF77Decoder::recordSampledTrace(uint8_t secondIndex, int8_t bit,
     t.valid = bit == 0 || bit == 1;
     t.secondTimingOk = true;
     t.minuteGap = minuteMarker;
+    t.markerCandidate = markerCandidate;
     t.sampled = true;
     t.confidence = confidence;
     t.secondIndex = secondIndex;
@@ -644,13 +647,14 @@ bool DCF77Decoder::decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidenc
 }
 
 void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
-                                        uint8_t confidence, bool minuteMarker) {
+                                        uint8_t confidence, bool minuteMarker,
+                                        bool markerCandidate) {
     if (_mode != SignalMode::DCF77) return;
     _stats.sampledSymbols++;
     _stats.totalPulses++;
 
     // Keep diagnostics alive even before minute-phase lock.
-    recordSampledTrace(secondIndex, bit, confidence, minuteMarker);
+    recordSampledTrace(secondIndex, bit, confidence, minuteMarker, markerCandidate);
 
     if (secondIndex > 59) {
         _stats.lastBit = bit;
