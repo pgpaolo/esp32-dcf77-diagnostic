@@ -45,9 +45,15 @@ void applyPonMode(PinDriveMode mode) {
     applyPinMode(PIN_RX_PON, mode, "PON");
 }
 
-void resetReceiverDiagnostics() {
-    ponStartActive = false;
-    resetReceiverDiagnostics();
+void resetReceiverDiagnostics(bool cancelPonStart = true) {
+    if (cancelPonStart) ponStartActive = false;
+    receiverChangedMs = millis();
+    receiverResetRequested = true;
+    observedPulses = 0;
+    lastPulseMs = 0;
+    rateSampleMs = 0;
+    rateSamplePulses = 0;
+    pulseEventsPerSecond = 0.0f;
 }
 
 void applyOutInputMode(bool pullup) {
@@ -110,7 +116,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}
 
 <div class="card">
 <h2 style="margin-top:0">Ricevitore MASO-S-R1</h2>
-<p class="muted"><b>OUT</b> è su D7/GPIO13, <b>SEL</b> su D2/GPIO4 e <b>PON/ENABLE</b> su D1/GPIO5. SEL e PON possono essere lasciati flottanti oppure pilotati a LOW/HIGH per la diagnostica.</p>
+<p class="muted">Pinout MASO-S-R1 confermato dalla serigrafia PCB: <b>SEL → D2/GPIO4</b>, <b>OUT → D7/GPIO13</b>, <b>PON → D1/GPIO5</b>. I livelli logici di SEL/PON restano selezionabili per la diagnostica.</p>
 <div id="receiverState" class="warn">Verifica stato ricevitore…</div>
 
 <p><b>SEL · D2 / GPIO4</b></p>
@@ -352,13 +358,7 @@ void setReceiverControl() {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"Pin non valido\"}");
         return;
     }
-    receiverChangedMs = millis();
-    receiverResetRequested = true;
-    observedPulses = 0;
-    lastPulseMs = 0;
-    rateSampleMs = 0;
-    rateSamplePulses = 0;
-    pulseEventsPerSecond = 0.0f;
+    resetReceiverDiagnostics();
 
     String msg = "{\"ok\":true,\"message\":\"";
     msg += pin == "sel" ? "SEL" : "PON";
@@ -387,10 +387,10 @@ void setOutMode() {
 }
 
 void startPonSequence() {
-    ponStartActive = true;
-    ponStartBeganMs = millis();
     applyPonMode(PinDriveMode::HIGH_LEVEL);
-    resetReceiverDiagnostics();
+    ponStartBeganMs = millis();
+    ponStartActive = true;
+    resetReceiverDiagnostics(false);
     Serial.println("MASO START PON: HIGH, waiting 3000 ms before LOW");
     server.send(202,"application/json","{\"ok\":true,\"message\":\"START PON avviato: HIGH per 3 s, poi LOW automatico\"}");
 }
@@ -500,7 +500,7 @@ void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver) {
     if (ponStartActive && now - ponStartBeganMs >= PON_START_HIGH_MS) {
         ponStartActive = false;
         applyPonMode(PinDriveMode::LOW_LEVEL);
-        resetReceiverDiagnostics();
+        resetReceiverDiagnostics(false);
         Serial.println("MASO START PON: transition HIGH -> LOW completed; diagnostics reset");
     }
 
