@@ -24,10 +24,10 @@ volatile uint32_t droppedWindows = 0;
 uint8_t previousWindow[BINS] = {};
 bool havePreviousWindow = false;
 
-// Udo-style persistent phase bins. With 100 bins and the ESP8266 resonator
-// the reference implementation allows roughly 300 seconds of integration.
-uint16_t phaseData[BINS] = {};
-int32_t phaseIntegral = 0;
+// Persistent phase score. This version proved more stable with the MASO-S-R1
+// on HW-364A than the direct convolution port, while the downstream symbol
+// and 60-second decoders remain Udo-style.
+int32_t phaseScore[BINS] = {};
 uint8_t currentPhaseBin = 0;
 uint8_t currentPhaseQuality = 0;
 bool currentPhaseLocked = false;
@@ -86,66 +86,49 @@ uint16_t windowSignal(const uint8_t combined[200], uint16_t start, uint16_t len)
 }
 
 void findPhase(const uint8_t combined[200]) {
-    constexpr uint16_t PHASE_N = 300;
+    int32_t best = -2147483647;
+    uint8_t bestIndex = 0;
 
-    // Process the previous one-second window as 100 boolean 10 ms bins.
-    // This follows the structure of Udo Klein's phase_binning(): each phase
-    // bin integrates activity persistently and a 3-part convolution kernel
-    // searches for the pulse start.
-    int32_t runningMax = -2147483647;
-    uint8_t runningMaxIndex = currentPhaseBin;
-    int32_t integralAtTick[BINS];
+    for (uint8_t candidate = 0; candidate < BINS; ++candidate) {
+        const uint16_t base = candidate;
+        const uint16_t a = windowSignal(combined, base, 10);       // 0..100 ms
+        const uint16_t b = windowSignal(combined, base + 10, 10);  // 100..200 ms
+        const uint16_t n = windowSignal(combined, base + 25, 50);  // 250..750 ms
 
-    for (uint8_t tick = 0; tick < BINS; ++tick) {
-        const bool input = combined[tick] > 5;
+        const int32_t instant =
+            static_cast<int32_t>(2U * a + b) -
+            static_cast<int32_t>(n / 2U);
 
-        uint16_t &v = phaseData[tick];
-        if (v > PHASE_N) v = PHASE_N;
-        if (input) {
-            if (v < PHASE_N) ++v;
-        } else {
-            if (v > 0) --v;
+        // Long-memory integrator. Keep evidence across many seconds but do
+        // not let one noisy second move the detected phase abruptly.
+        phaseScore[candidate] = (phaseScore[candidate] * 15 + instant * 16) / 16;
+
+        if (phaseScore[candidate] > best) {
+            best = phaseScore[candidate];
+            bestIndex = candidate;
         }
-
-        // Current convolution value is evaluated before updating the kernel,
-        // matching the ordering in phase_binning().
-        integralAtTick[tick] = phaseIntegral;
-
-        const uint8_t ckStart  = static_cast<uint8_t>((tick + 80U) % BINS);
-        const uint8_t ckMiddle = static_cast<uint8_t>((tick + 90U) % BINS);
-
-        if (phaseIntegral > runningMax) {
-            runningMax = phaseIntegral;
-            runningMaxIndex = ckStart;
-        }
-
-        phaseIntegral -= static_cast<int32_t>(phaseData[ckStart]) * 2;
-        phaseIntegral += static_cast<int32_t>(phaseData[ckMiddle]);
-        phaseIntegral += static_cast<int32_t>(phaseData[tick]);
     }
 
-    currentPhaseBin = runningMaxIndex;
+    currentPhaseBin = bestIndex;
 
-    // Udo samples the noise roughly two 200 ms blocks away from the phase.
-    const uint8_t noiseTick = static_cast<uint8_t>((currentPhaseBin + 40U) % BINS);
-    const int32_t noise = integralAtTick[noiseTick];
-    const int32_t delta = runningMax > noise ? runningMax - noise : 0;
+    // Compare against a phase well outside the 100/200 ms useful pulse.
+    const uint8_t noiseIndex = static_cast<uint8_t>((bestIndex + 20U) % BINS);
+    const int32_t noise = phaseScore[noiseIndex];
+    const int32_t separation = best > noise ? best - noise : 0;
 
-    // Expose a readable 0..100 diagnostic while locking on sustained delta.
-    // The exact percentage is not used as an RF truth value.
-    int32_t q = delta / 4;
+    int32_t q = separation / 8;
     if (q > 100) q = 100;
     currentPhaseQuality = static_cast<uint8_t>(q);
 
-    if (delta >= 12) {
+    if (separation >= 80 && best >= 120) {
         if (phaseStableSeconds < 255) ++phaseStableSeconds;
-    } else if (delta < 4) {
+    } else if (separation < 30 || best < 60) {
         phaseStableSeconds = 0;
     } else if (phaseStableSeconds > 0) {
         --phaseStableSeconds;
     }
 
-    currentPhaseLocked = phaseStableSeconds >= 3;
+    currentPhaseLocked = phaseStableSeconds >= 4;
 }
 
 uint8_t wrap60(int v) {
@@ -368,8 +351,7 @@ void sampledDcfReset() {
     interrupts();
 
     memset(previousWindow, 0, sizeof(previousWindow));
-    memset(phaseData, 0, sizeof(phaseData));
-    phaseIntegral = 0;
+    memset(phaseScore, 0, sizeof(phaseScore));
     havePreviousWindow = false;
     currentPhaseBin = 0;
     currentPhaseQuality = 0;
