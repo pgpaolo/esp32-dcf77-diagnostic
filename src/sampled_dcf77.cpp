@@ -31,6 +31,7 @@ volatile bool previousRawActive = false;
 uint8_t previousWindow[BINS] = {};
 bool havePreviousWindow = false;
 uint32_t previousWindowStartUs = 0;
+uint8_t previousWindowPrecedingBin = 0;
 
 // Persistent phase score. This version proved more stable with the MASO-S-R1
 // on HW-364A than the direct convolution port, while the downstream symbol
@@ -206,8 +207,12 @@ int8_t signedPhaseError100(uint8_t observed, uint8_t predicted) {
 }
 
 bool candidateRisingEdge(const uint8_t combined[200], uint8_t idx, uint8_t &strength) {
-    const uint8_t prev = idx == 0 ? 99 : static_cast<uint8_t>(idx - 1);
-    if (phaseBinActive(combined, prev) || !phaseBinActive(combined, idx)) {
+    // At the capture boundary, bin 99 belongs to the END of this window,
+    // not its past. Use the actual last bin of the preceding window. Otherwise
+    // a pulse tail at bin 0 invents an edge when second 59 has no new pulse.
+    const bool previousActive = idx == 0 ? previousWindowPrecedingBin > 5
+        : phaseBinActive(combined, static_cast<uint8_t>(idx - 1));
+    if (previousActive || !phaseBinActive(combined, idx)) {
         strength = 0;
         return false;
     }
@@ -667,6 +672,7 @@ void sampledDcfReset() {
     memset(phaseScore, 0, sizeof(phaseScore));
     havePreviousWindow = false;
     previousWindowStartUs = 0;
+    previousWindowPrecedingBin = previousRawActive ? 10 : 0;
     currentPhaseBin = 0;
     currentPhaseQuality = 0;
     currentPhaseLocked = false;
@@ -790,6 +796,8 @@ void sampledDcfPoll() {
         snapshotState.lastPulseMs = 0;
     }
 
+    previousWindowPrecedingBin = havePreviousWindow && newDrops == 0
+        ? previousWindow[BINS - 1] : 0;
     memcpy(previousWindow, current, BINS);
     previousWindowStartUs = currentStartUs;
     havePreviousWindow = true;
