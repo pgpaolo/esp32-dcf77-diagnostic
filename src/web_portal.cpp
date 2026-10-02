@@ -9,6 +9,8 @@ const DCF77Decoder *currentDecoder = nullptr;
 uint32_t observedPulses = 0, lastPulseMs = 0;
 uint32_t rateSampleMs = 0, rateSamplePulses = 0;
 float pulseEventsPerSecond = 0.0f;
+bool receiverResetRequested = false;
+uint32_t receiverChangedMs = 0;
 enum class PinDriveMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
 PinDriveMode selMode = PinDriveMode::FLOATING;
 PinDriveMode ponMode = PinDriveMode::FLOATING;
@@ -160,7 +162,8 @@ async function updateReceiver(){
     el.textContent='SEL '+d.sel+' · GPIO '+d.selGpio+
       ' | PON '+d.pon+' · GPIO '+d.ponGpio+
       ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+
-      ' | eventi '+d.eventsPerSecond+'/s';
+      ' | eventi '+d.eventsPerSecond+'/s'+
+      ' | da modifica '+d.secondsSinceChange+' s';
   }catch(e){
     const el=document.getElementById('receiverState');el.className='err';el.textContent='Impossibile leggere lo stato del ricevitore';
   }
@@ -267,6 +270,8 @@ void receiverStatus() {
     json += String(PIN_DCF77);
     json += ",\"eventsPerSecond\":";
     json += String(pulseEventsPerSecond,1);
+    json += ",\"secondsSinceChange\":";
+    json += receiverChangedMs ? String((millis() - receiverChangedMs) / 1000UL) : String(0);
     json += "}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",json);
@@ -297,6 +302,14 @@ void setReceiverControl() {
         server.send(400,"application/json","{\"ok\":false,\"message\":\"Pin non valido\"}");
         return;
     }
+    receiverChangedMs = millis();
+    receiverResetRequested = true;
+    observedPulses = 0;
+    lastPulseMs = 0;
+    rateSampleMs = 0;
+    rateSamplePulses = 0;
+    pulseEventsPerSecond = 0.0f;
+
     String msg = "{\"ok\":true,\"message\":\"";
     msg += pin == "sel" ? "SEL" : "PON";
     msg += " aggiornato a ";
@@ -417,9 +430,16 @@ void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver) {
     server.handleClient();
 }
 
+bool portalTakeReceiverResetRequest() {
+    const bool requested = receiverResetRequested;
+    receiverResetRequested = false;
+    return requested;
+}
+
 const char *portalAddress() { return "192.168.4.1"; }
 #else
 void portalBegin() {}
 void portalPoll(const DCF77Decoder &, const ReceiverControl &) {}
+bool portalTakeReceiverResetRequest() { return false; }
 const char *portalAddress() { return ""; }
 #endif
