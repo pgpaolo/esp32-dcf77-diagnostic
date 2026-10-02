@@ -7,6 +7,7 @@
 #include "dcf77_decoder.h"
 #include "receiver_control.h"
 #include "ui.h"
+#include "sampled_dcf77.h"
 
 namespace {
 constexpr uint8_t PULSE_QUEUE_SIZE = 16;
@@ -236,6 +237,9 @@ void setup() {
 
     pinMode(PIN_DCF77, DCF77_USE_INTERNAL_PULLUP ? INPUT_PULLUP : INPUT);
     attachInterrupt(digitalPinToInterrupt(PIN_DCF77), onDcfEdge, CHANGE);
+#if defined(ESP8266)
+    sampledDcfBegin(PIN_DCF77, dcfActiveLowRuntime);
+#endif
 
     if (PPS_ENABLED) {
         pinMode(PIN_PPS, INPUT);
@@ -266,12 +270,48 @@ void loop() {
     pollSerialCommands();
     pollButtons();
 
+#if defined(ESP8266)
+    sampledDcfPoll();
+
+    // Drain the raw edge queue. In DCF77 mode it is diagnostic only: the
+    // decoder is driven by the timer-sampled phase detector below.
+    RawPulse p;
+    while (popPulse(p)) {
+        if (!receiver.ready()) continue;
+        if (decoder.signalMode() == SignalMode::RAW_60KHZ) {
+            decoder.processPulse(p);
+            logPulse(p);
+        }
+    }
+
+    static bool sampledMarkerPending = false;
+    SampledDcfEvent sampled;
+    while (sampledDcfPopEvent(sampled)) {
+        if (!receiver.ready() || decoder.signalMode() != SignalMode::DCF77) continue;
+
+        if (sampled.minuteMarker) {
+            sampledMarkerPending = true;
+            continue;
+        }
+
+        RawPulse sp;
+        sp.startUs = sampled.startUs;
+        sp.widthUs = static_cast<uint32_t>(sampled.pulseMs) * 1000UL;
+        sp.periodUs = sampledMarkerPending ? 2000000UL : 1000000UL;
+        sp.ppsOffsetUs = INT32_MIN;
+        sampledMarkerPending = false;
+
+        decoder.processPulse(sp);
+        logPulse(sp);
+    }
+#else
     RawPulse p;
     while (popPulse(p)) {
         if (!receiver.ready()) continue;
         decoder.processPulse(p);
         logPulse(p);
     }
+#endif
 
     int analogRaw = -1;
     if (DCF77_ANALOG_ENABLED) analogRaw = analogRead(PIN_DCF77_ANALOG);
@@ -298,6 +338,7 @@ void loop() {
         dcfActiveLowRuntime = requestedPolarity;
         decoder.reset();
         clearPulseCapture();
+        sampledDcfSetPolarity(dcfActiveLowRuntime);
         Serial.printf("MASO OUT polarity changed: ACTIVE %s\n",
                       dcfActiveLowRuntime ? "LOW" : "HIGH");
     }
@@ -306,7 +347,10 @@ void loop() {
     if (portalTakeReceiverResetRequest()) {
         decoder.reset();
         clearPulseCapture();
-        Serial.println("MASO diagnostic reset: decoder statistics and pulse timing cleared");
+#if defined(ESP8266)
+        sampledDcfReset();
+#endif
+        Serial.println("MASO diagnostic reset: decoder statistics, sampled phase and pulse timing cleared");
     }
 
     delay(2);
