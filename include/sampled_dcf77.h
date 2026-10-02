@@ -6,6 +6,7 @@
 struct SampledDcfEvent {
     int8_t bit = -1;          // 0 / 1 / -1 unknown
     bool minuteMarker = false;
+    bool markerCandidate = false; // statistical evidence only until minute phase locks
     uint8_t confidence = 0;
     uint16_t pulseMs = 0;
     uint32_t startUs = 0;
