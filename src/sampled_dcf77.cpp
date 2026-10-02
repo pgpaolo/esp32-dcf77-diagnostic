@@ -39,8 +39,11 @@ uint8_t minuteScore[60] = {};
 uint8_t rawSecondTick = 0;
 uint8_t minuteBest = 0;
 uint8_t minuteQuality = 0;
+uint8_t minuteScoreMax = 0;
+uint8_t minuteScoreNoise = 0;
 bool minutePhaseLocked = false;
 uint8_t minuteStable = 0;
+uint32_t syncCandidateCount = 0;
 
 SampledDcfSnapshot snapshotState;
 
@@ -155,6 +158,7 @@ void updateMinutePhase(const SampledDcfEvent &e) {
     const uint8_t next = wrap60(static_cast<int>(current) + 1);
 
     if (e.markerCandidate) {
+        syncCandidateCount++;
         // sync mark: +6 current, -2 previous, -2 next, -2 current-21
         satAdd(minuteScore[current], 6);
         satSub(minuteScore[previous], 2);
@@ -192,7 +196,15 @@ void updateMinutePhase(const SampledDcfEvent &e) {
     }
 
     minuteBest = bestIdx;
+    minuteScoreMax = best;
+    minuteScoreNoise = second;
     minuteQuality = best > second ? static_cast<uint8_t>(best - second) : 0;
+
+    snapshotState.minuteBestCandidate = minuteBest;
+    snapshotState.minuteScoreMax = minuteScoreMax;
+    snapshotState.minuteScoreNoise = minuteScoreNoise;
+    snapshotState.minuteLockThreshold = 12;
+    snapshotState.syncCandidates = syncCandidateCount;
 
     // Udo's second decoder uses a lock threshold of 12 between signal_max
     // and noise_max. Keep the same criterion here.
@@ -361,8 +373,11 @@ void sampledDcfReset() {
     rawSecondTick = 0;
     minuteBest = 0;
     minuteQuality = 0;
+    minuteScoreMax = 0;
+    minuteScoreNoise = 0;
     minutePhaseLocked = false;
     minuteStable = 0;
+    syncCandidateCount = 0;
     snapshotState = SampledDcfSnapshot{};
     eventHead = eventTail = 0;
     previousWasMarker = false;
