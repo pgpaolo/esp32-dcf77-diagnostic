@@ -525,7 +525,9 @@ void pulseStatus() {
         json += ",\"widthMs\":"; json += String(p.widthUs / 1000.0, 3);
         json += ",\"periodMs\":"; json += String(p.periodUs / 1000.0, 3);
         json += ",\"bitLabel\":\"";
-        if (p.bit == 0) json += "0";
+        if (p.minuteGap) json += "MIN";
+        else if (p.markerCandidate) json += "SYNC?";
+        else if (p.bit == 0) json += "0";
         else if (p.bit == 1) json += "1";
         else json += "?";
         json += "\",\"valid\":"; json += p.valid ? "true" : "false";
