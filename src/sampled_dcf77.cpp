@@ -148,29 +148,40 @@ void satSub(uint8_t &v, uint8_t n) {
 }
 
 void updateMinutePhase(const SampledDcfEvent &e) {
-    // Slow decay prevents stale evidence from dominating forever.
-    for (uint8_t i = 0; i < 60; ++i) {
-        if (minuteScore[i] > 0) minuteScore[i]--;
-    }
+    // Udo Klein style sync-mark binning.
+    // Scores are persistent and saturating: evidence is accumulated over
+    // minutes instead of globally decaying every second.
+    const uint8_t current = rawSecondTick;
+    const uint8_t previous = wrap60(static_cast<int>(current) - 1);
+    const uint8_t previous21 = wrap60(static_cast<int>(current) - 21);
+    const uint8_t next = wrap60(static_cast<int>(current) + 1);
 
     if (e.markerCandidate) {
-        // A quiet 220 ms window is only evidence for second 59, never proof.
-        satAdd(minuteScore[rawSecondTick], 10);
-        satSub(minuteScore[wrap60(rawSecondTick - 1)], 3);
-        satSub(minuteScore[wrap60(rawSecondTick + 1)], 3);
+        // sync mark: +6 current, -2 previous, -2 next, -2 current-21
+        satAdd(minuteScore[current], 6);
+        satSub(minuteScore[previous], 2);
+        satSub(minuteScore[next], 2);
+        satSub(minuteScore[previous21], 2);
     } else if (e.bit == 0) {
-        // If this is DCF second 0, marker candidate is one raw tick behind.
-        satAdd(minuteScore[wrap60(rawSecondTick - 1)], 3);
-        // A zero at DCF second 20 contradicts that candidate.
-        satSub(minuteScore[wrap60(rawSecondTick - 21)], 3);
+        // short tick: +1 previous, -2 current, -2 current-21
+        satAdd(minuteScore[previous], 1);
+        satSub(minuteScore[current], 2);
+        satSub(minuteScore[previous21], 2);
     } else if (e.bit == 1) {
-        // DCF second 20 is fixed to 1.
-        satAdd(minuteScore[wrap60(rawSecondTick - 21)], 3);
-        // A one at DCF second 0 contradicts that candidate.
-        satSub(minuteScore[wrap60(rawSecondTick - 1)], 3);
+        // long tick: +1 current-21, -2 current, -2 previous
+        satAdd(minuteScore[previous21], 1);
+        satSub(minuteScore[current], 2);
+        satSub(minuteScore[previous], 2);
+    } else {
+        // undefined: penalize all positions directly contradicted by it.
+        satSub(minuteScore[current], 2);
+        satSub(minuteScore[previous], 2);
+        satSub(minuteScore[previous21], 2);
     }
 
-    uint8_t best = 0, second = 0, bestIdx = 0;
+    uint8_t best = 0;
+    uint8_t second = 0;
+    uint8_t bestIdx = 0;
     for (uint8_t i = 0; i < 60; ++i) {
         const uint8_t v = minuteScore[i];
         if (v >= best) {
@@ -185,15 +196,10 @@ void updateMinutePhase(const SampledDcfEvent &e) {
     minuteBest = bestIdx;
     minuteQuality = best > second ? static_cast<uint8_t>(best - second) : 0;
 
-    // Lock only after repeated separation from competing positions.
-    if (minuteQuality >= 10 && best >= 24) {
-        if (minuteStable < 255) minuteStable++;
-    } else if (minuteQuality < 5) {
-        minuteStable = 0;
-    } else if (minuteStable > 0) {
-        minuteStable--;
-    }
-    minutePhaseLocked = minuteStable >= 6;
+    // Udo's second decoder uses a lock threshold of 12 between signal_max
+    // and noise_max. Keep the same criterion here.
+    minutePhaseLocked = minuteQuality >= 12;
+    minuteStable = minutePhaseLocked ? 255 : 0;
 }
 
 uint8_t decodedSecondForRawTick(uint8_t rawTick) {
