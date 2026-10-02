@@ -19,6 +19,7 @@ constexpr uint32_t PON_START_HIGH_MS = 3000;
 enum class PinDriveMode : uint8_t { FLOATING, LOW_LEVEL, HIGH_LEVEL };
 PinDriveMode selMode = PinDriveMode::FLOATING;
 PinDriveMode ponMode = PinDriveMode::LOW_LEVEL;
+SignalMode selectedSignalMode = SignalMode::DCF77;
 
 const char *modeLabel(PinDriveMode mode) {
     if (mode == PinDriveMode::FLOATING) return "FLOAT";
@@ -124,11 +125,11 @@ th:first-child,td:first-child{text-align:left}
 <p class="muted">Pinout MASO-S-R1 confermato dalla serigrafia PCB: <b>SEL → D2/GPIO4</b>, <b>OUT → D7/GPIO13</b>, <b>PON → D1/GPIO5</b>. I livelli logici di SEL/PON restano selezionabili per la diagnostica.</p>
 <div id="receiverState" class="warn">Verifica stato ricevitore…</div>
 
-<p><b>SEL · D2 / GPIO4</b></p>
+<p><b>Banda / SEL · D2 / GPIO4</b></p>
 <div class="row">
-<div><button type="button" onclick="setReceiverPin('sel','float')">SEL FLOAT</button></div>
-<div><button type="button" onclick="setReceiverPin('sel','low')">SEL LOW</button></div>
-<div><button type="button" onclick="setReceiverPin('sel','high')">SEL HIGH</button></div>
+<div><button type="button" onclick="setBand('eu')">EU · 77,5 kHz (SEL LOW)</button></div>
+<div><button type="button" onclick="setBand('uk')">UK · 60 kHz (SEL HIGH)</button></div>
+<div><button type="button" onclick="setBand('float')">SEL FLOAT</button></div>
 </div>
 
 <p><b>PON / ENABLE · D1 / GPIO5</b></p>
@@ -211,7 +212,7 @@ async function updateReceiver(){
     const d=await r.json();
     const el=document.getElementById('receiverState');
     el.className=(d.sel==='FLOAT'||d.pon==='FLOAT')?'warn':'ok';
-    el.textContent='SEL '+d.sel+' · GPIO '+d.selGpio+
+    el.textContent='BANDA '+d.band+' | SEL '+d.sel+' · GPIO '+d.selGpio+
       ' | PON '+d.pon+' · GPIO '+d.ponGpio+
       ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+' ('+d.outMode+', ACTIVE '+d.polarity+')'+
       ' | eventi '+d.eventsPerSecond+'/s'+
@@ -220,6 +221,18 @@ async function updateReceiver(){
   }catch(e){
     const el=document.getElementById('receiverState');el.className='err';el.textContent='Impossibile leggere lo stato del ricevitore';
   }
+}
+
+async function setBand(mode){
+  const msg=document.getElementById('receiverMsg');
+  msg.textContent='Impostazione banda…';
+  try{
+    const body=new URLSearchParams({mode});
+    const r=await fetch('/api/receiver/band',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const d=await r.json();
+    msg.textContent=d.message||'Banda aggiornata';
+    updateReceiver();
+  }catch(e){msg.textContent='Errore durante la modifica della banda'}
 }
 
 async function setReceiverPin(pin,mode){
@@ -415,7 +428,11 @@ void pulseStatus() {
 void receiverStatus() {
     String json;
     json.reserve(320);
-    json = "{\"sel\":\"";
+    json = "{\"band\":\"";
+    if (selMode == PinDriveMode::LOW_LEVEL) json += "EU 77.5 kHz";
+    else if (selMode == PinDriveMode::HIGH_LEVEL) json += "UK 60 kHz";
+    else json += "FLOAT";
+    json += "\",\"sel\":\"";
     json += modeLabel(selMode);
     json += "\",\"selGpio\":";
     json += String(PIN_RX_BAND);
@@ -451,6 +468,34 @@ bool parseDriveMode(const String &mode, PinDriveMode &out) {
     else if (mode == "high") out = PinDriveMode::HIGH_LEVEL;
     else return false;
     return true;
+}
+
+void setBandMode() {
+    if (!server.hasArg("mode")) {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Parametro mode mancante\"}");
+        return;
+    }
+    const String mode = server.arg("mode");
+    if (mode == "eu") {
+        applySelMode(PinDriveMode::LOW_LEVEL);
+        selectedSignalMode = SignalMode::DCF77;
+    } else if (mode == "uk") {
+        applySelMode(PinDriveMode::HIGH_LEVEL);
+        selectedSignalMode = SignalMode::RAW_60KHZ;
+    } else if (mode == "float") {
+        applySelMode(PinDriveMode::FLOATING);
+        selectedSignalMode = SignalMode::DCF77;
+    } else {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Banda non valida\"}");
+        return;
+    }
+    resetReceiverDiagnostics();
+    String msg = "{\"ok\":true,\"message\":\"";
+    if (mode == "eu") msg += "EU 77,5 kHz / SEL LOW / decoder DCF77";
+    else if (mode == "uk") msg += "UK 60 kHz / SEL HIGH / monitor RAW 60 kHz";
+    else msg += "SEL FLOAT / decoder DCF77";
+    msg += "\"}";
+    server.send(200,"application/json",msg);
 }
 
 void setReceiverControl() {
@@ -614,6 +659,7 @@ void portalBegin() {
     server.on("/api/status",HTTP_GET,status);
     server.on("/api/pulses",HTTP_GET,pulseStatus);
     server.on("/api/receiver",HTTP_GET,receiverStatus);
+    server.on("/api/receiver/band",HTTP_POST,setBandMode);
     server.on("/api/receiver/control",HTTP_POST,setReceiverControl);
     server.on("/api/receiver/out",HTTP_POST,setOutMode);
     server.on("/api/receiver/polarity",HTTP_POST,setPolarity);
@@ -663,11 +709,16 @@ bool portalDcfActiveLow() {
     return dcfActiveLowSelected;
 }
 
+SignalMode portalSignalMode() {
+    return selectedSignalMode;
+}
+
 const char *portalAddress() { return "192.168.4.1"; }
 #else
 void portalBegin() {}
 void portalPoll(const DCF77Decoder &, const ReceiverControl &) {}
 bool portalTakeReceiverResetRequest() { return false; }
 bool portalDcfActiveLow() { return DCF77_ACTIVE_LOW; }
+SignalMode portalSignalMode() { return SignalMode::DCF77; }
 const char *portalAddress() { return ""; }
 #endif
