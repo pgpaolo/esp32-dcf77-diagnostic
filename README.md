@@ -4,8 +4,7 @@
 
 È disponibile il profilo `hw364a`, con OLED SSD1306 128x64, tre pagine automatiche
 e portale Wi-Fi di diagnostica. Compilazione: `pio run -e hw364a`.
-Collegarsi alla rete `DCF77-HW364A-xxxxxx`, password iniziale `dcf77oled`,
-e aprire http://192.168.4.1 .
+Collegarsi alla rete aperta `DCF77-HW364A-xxxxxx` e aprire http://192.168.4.1 .\nDal portale è possibile scansionare le reti Wi-Fi locali, selezionare un SSID e configurare la connessione STA. L'access point di configurazione resta attivo anche quando il dispositivo è collegato alla LAN.
 
 Vedere [istruzioni HW364A](docs/HW364A.md) prima di collegare il ricevitore MASO-S-R1:
 VDD, SEL, PON e tipo di uscita devono essere verificati; SEL/PON non vengono pilotati per default.
@@ -39,7 +38,7 @@ At **77.5 kHz** the firmware performs complete DCF77 decoding. At **60 kHz** it 
 - optional analog envelope input
 - optional GPS PPS input for receiver-vs-PPS offset measurements
 - serial CSV-like diagnostic logging
-- four TFT pages selected with the built-in button
+- four TFT pages selected with the built-in button\n- HW-364A captive-style local portal with open AP, Wi-Fi scan and LAN connection setup
 
 ## Hardware target
 
