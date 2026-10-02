@@ -83,40 +83,54 @@ uint16_t windowSignal(const uint8_t combined[200], uint16_t start, uint16_t len)
 
 void findPhase(const uint8_t combined[200]) {
     int32_t best = -2147483647;
-    int32_t second = -2147483647;
     uint8_t bestIndex = 0;
 
+    // Accumulate the phase evidence over time. Adjacent 10 ms candidates are
+    // intentionally allowed to have similar scores; they must NOT be used as
+    // the noise reference because a real 100/200 ms pulse naturally spreads
+    // over neighbouring candidates.
     for (uint8_t candidate = 0; candidate < BINS; ++candidate) {
         const uint16_t base = candidate;
-        const uint16_t a = windowSignal(combined, base, 10);      // first 100 ms
-        const uint16_t b = windowSignal(combined, base + 10, 10); // next 100 ms
-        const uint16_t n = windowSignal(combined, base + 25, 50); // 250..750 ms noise region
+        const uint16_t a = windowSignal(combined, base, 10);       // 0..100 ms
+        const uint16_t b = windowSignal(combined, base + 10, 10);  // 100..200 ms
+        const uint16_t n = windowSignal(combined, base + 25, 50);  // 250..750 ms
 
-        const int32_t instant = static_cast<int32_t>(2U * a + b) - static_cast<int32_t>(n / 2U);
-        phaseScore[candidate] = (phaseScore[candidate] * 7 + instant * 16) / 8;
+        const int32_t instant =
+            static_cast<int32_t>(2U * a + b) -
+            static_cast<int32_t>(n / 2U);
+
+        // Slow integrator: signal phase should build up across many seconds.
+        phaseScore[candidate] = (phaseScore[candidate] * 15 + instant * 16) / 16;
 
         if (phaseScore[candidate] > best) {
-            second = best;
             best = phaseScore[candidate];
             bestIndex = candidate;
-        } else if (phaseScore[candidate] > second) {
-            second = phaseScore[candidate];
         }
     }
 
     currentPhaseBin = bestIndex;
-    const int32_t separation = best - second;
-    const int32_t quality = separation <= 0 ? 0 : separation / 2;
-    currentPhaseQuality = quality > 100 ? 100 : static_cast<uint8_t>(quality);
 
-    if (currentPhaseQuality >= 8) {
+    // Udo-style quality idea: compare the signal phase against a point
+    // roughly 200 ms away, not against the adjacent 10 ms bin.
+    const uint8_t noiseIndex = static_cast<uint8_t>((bestIndex + 20U) % BINS);
+    const int32_t noise = phaseScore[noiseIndex];
+    const int32_t separation = best > noise ? best - noise : 0;
+
+    // Scale to a readable 0..100 indicator. The exact value is diagnostic;
+    // lock is based on sustained separation, not on one isolated sample.
+    int32_t q = separation / 8;
+    if (q > 100) q = 100;
+    currentPhaseQuality = static_cast<uint8_t>(q);
+
+    if (separation >= 80 && best >= 120) {
         if (phaseStableSeconds < 255) phaseStableSeconds++;
-    } else if (currentPhaseQuality < 5) {
+    } else if (separation < 30 || best < 60) {
         phaseStableSeconds = 0;
-    } else {
-        phaseStableSeconds = phaseStableSeconds > 1 ? phaseStableSeconds - 2 : 0;
+    } else if (phaseStableSeconds > 0) {
+        phaseStableSeconds--;
     }
-    currentPhaseLocked = phaseStableSeconds >= 5;
+
+    currentPhaseLocked = phaseStableSeconds >= 4;
 }
 
 uint8_t wrap60(int v) {
