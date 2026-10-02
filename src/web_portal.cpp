@@ -362,7 +362,7 @@ async function updatePulses(){
         p.bitLabel,
         p.confidence+'%',
         p.timingLabel,
-        p.framePos
+        p.framePos===null?'?':p.framePos
       ];
       vals.forEach((v,i)=>{const td=document.createElement('td');td.textContent=v;tr.append(td)});
       tr.className=p.valid&&p.secondTimingOk?'good':(p.glitch?'bad':'neutral');
@@ -535,7 +535,12 @@ void pulseStatus() {
         if (p.minuteGap) json += "MIN";
         else if (p.secondTimingOk) json += "1s OK";
         else json += "fuori";
-        json += "\",\"framePos\":"; json += String(p.framePos);
+        json += "\",\"framePos\":";
+        json += p.secondIndex == 255 ? String("null") : String(p.framePos);
+        json += ",\"source\":\""; json += p.sampled ? "sampled" : "edge"; json += "\"";
+        json += ",\"confidence\":"; json += String(p.confidence);
+        json += ",\"secondIndex\":";
+        json += p.secondIndex == 255 ? String("null") : String(p.secondIndex);
         json += "}";
     }
     json += "]}";
