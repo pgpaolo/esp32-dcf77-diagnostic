@@ -97,7 +97,8 @@ public:
     SignalMode signalMode() const { return _mode; }
 
     void processPulse(const RawPulse &pulse);
-    void processSampledSymbol(uint8_t secondIndex, int8_t bit, uint8_t confidence, bool minuteMarker, bool markerCandidate);
+    void processSampledSymbol(uint8_t secondIndex, int8_t bit, uint8_t confidence,
+                              bool minuteMarker, bool markerCandidate, uint32_t slotStartUs = 0);
     const DecoderStats &stats() const { return _stats; }
     const DCFDateTime &decodedTime() const { return _decoded; }
 

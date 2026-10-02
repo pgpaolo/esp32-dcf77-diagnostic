@@ -546,6 +546,11 @@ int DCF77Decoder::scoreFieldValue(const int *positions, const int *weights, size
 
 bool DCF77Decoder::decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidence) {
     confidence = 0;
+    _stats.recoveredBits = 0;
+    _stats.parityMinute = evenParity(_frame, 21, 28);
+    _stats.parityHour = evenParity(_frame, 29, 35);
+    _stats.parityDate = evenParity(_frame, 36, 58);
+    if (_frameCount < 59) return false;
 
     static const int minPos[] = {21,22,23,24,25,26,27};
     static const int minW[]   = {1,2,4,8,10,20,40};
@@ -612,18 +617,56 @@ bool DCF77Decoder::decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidenc
     countBits(month,monW,5); countBits(year2,yrW,8);
     const int dateParityScore = scoreExpectedBit(58, dateOnes & 1);
 
-    // Fixed DCF77 structural bits increase confidence but are not mandatory
-    // when reception is weak.
+    // An uncertain bit may be recovered; a clearly contradictory structural
+    // bit or timezone must never be promoted to a valid decoded clock.
     int structural = scoreExpectedBit(20,1);
     const int z1 = _frame[17], z2 = _frame[18];
-    if ((z1==0||z1==1) && (z2==0||z2==1)) structural += (z1!=z2) ? 40 : -40;
+    const bool haveZ1 = z1 == 0 || z1 == 1;
+    const bool haveZ2 = z2 == 0 || z2 == 1;
+    if (!haveZ1 && !haveZ2) return false;
+    if (haveZ1 && haveZ2 && z1 == z2) return false;
+    const bool cest = haveZ1 ? z1 == 1 : z2 == 0;
+    structural += 40;
+    if ((_frame[0] == 1 && _frameConfidence[0] >= 55) ||
+        (_frame[20] == 0 && _frameConfidence[20] >= 55)) return false;
 
     const int year = 2000 + year2;
     if (day > daysInMonth(year, month)) return false;
 
     // Require each field to have at least some separation from its runner-up.
     // This permits unknown bits but rejects a completely flat score landscape.
-    if (mm < 8 || hm < 8 || dm < 5 || mom < 5 || ym < 5) return false;
+    if (mm < 8 || hm < 8 || dm < 5 || wm < 5 || mom < 5 || ym < 5) return false;
+
+    // Reconstruct the selected BCD fields including all three parity bits.
+    // Reject a candidate contradicting reliable received bits, rather than
+    // allowing the date-parity penalty to be outweighed by unrelated fields.
+    int8_t expected[59];
+    memset(expected, -1, sizeof(expected));
+    auto encode = [&](const int *pos, const int *weights, size_t n,
+                      int value, int parityPos) {
+        int ones = 0;
+        for (size_t i = 0; i < n; ++i) {
+            const int b = weights[i] < 10 ? (((value % 10) & weights[i]) != 0)
+                : (((value / 10) & (weights[i] / 10)) != 0);
+            expected[pos[i]] = b;
+            ones += b;
+        }
+        if (parityPos >= 0) expected[parityPos] = ones & 1;
+    };
+    encode(minPos,minW,7,minute,28); encode(hrPos,hrW,6,hour,35);
+    encode(dayPos,dayW,6,day,-1); encode(wdPos,wdW,3,weekday,-1);
+    encode(monPos,monW,5,month,-1); encode(yrPos,yrW,8,year2,-1);
+    expected[58] = dateOnes & 1;
+    expected[0] = 0; expected[20] = 1;
+    expected[17] = cest ? 1 : 0; expected[18] = cest ? 0 : 1;
+    uint8_t recovered = 0;
+    for (uint8_t i = 0; i < 59; ++i) {
+        if (expected[i] < 0 || _frame[i] == expected[i]) continue;
+        if ((_frame[i] == 0 || _frame[i] == 1) && _frameConfidence[i] >= 55) return false;
+        ++recovered;
+    }
+    _stats.recoveredBits = recovered;
+    _stats.parityMinute = _stats.parityHour = _stats.parityDate = true;
 
     out = DCFDateTime{};
     out.minute = minute;
@@ -633,7 +676,7 @@ bool DCF77Decoder::decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidenc
     out.month = month;
     out.year = year;
     out.second = 0;
-    out.cest = (z1 == 1 && z2 == 0);
+    out.cest = cest;
     out.dstChangePending = _frame[16] == 1;
     out.leapSecondPending = _frame[19] == 1;
     out.valid = true;
@@ -648,15 +691,29 @@ bool DCF77Decoder::decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidenc
 
 void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
                                         uint8_t confidence, bool minuteMarker,
-                                        bool markerCandidate) {
+                                        bool markerCandidate, uint32_t slotStartUs) {
     if (_mode != SignalMode::DCF77) return;
     _stats.sampledSymbols++;
     _stats.totalPulses++;
+    // Sampled quality represents symbol-pattern confidence, not RF strength.
+    _qualityHistory[_qualityPos] = (bit == 0 || bit == 1 || minuteMarker)
+        ? confidence / 100.0f : 0.0f;
+    _qualityPos = (_qualityPos + 1U) % 60U;
+    if (_qualityCount < 60) ++_qualityCount;
+    float sum = 0.0f;
+    for (uint8_t i = 0; i < _qualityCount; ++i) sum += _qualityHistory[i];
+    _stats.quality = static_cast<uint8_t>(sum * 100.0f / _qualityCount);
 
     // Keep diagnostics alive even before minute-phase lock.
     recordSampledTrace(secondIndex, bit, confidence, minuteMarker, markerCandidate);
 
     if (secondIndex > 59) {
+        // Minute phase was lost: do not mix an old partial frame with a new
+        // minute alignment when the statistical minute decoder reacquires.
+        _stats.minuteSynced = false;
+        _frameCount = _stats.frameBitCount = 0;
+        memset(_frame, -1, sizeof(_frame));
+        memset(_frameConfidence, 0, sizeof(_frameConfidence));
         _stats.lastBit = bit;
         _stats.lastPulseValid = bit == 0 || bit == 1;
         _stats.lastPeriodUs = 1000000UL;
@@ -705,11 +762,16 @@ void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
                 if (_candidateStreak >= 2) {
                     _stats.clockLocked = true;
                     _decoded = dt;
-                    setClockBase(dt, micros());
+                    // Frame data describes the minute after the missing pulse.
+                    // Sampling processes that pulse one hardware window later;
+                    // anchor the clock to its real phase, not HTTP/loop latency.
+                    setClockBase(dt, slotStartUs ? slotStartUs + 1000000UL : micros());
                 }
                 _stats.acquisitionConfidence = fieldQ;
             } else {
                 _stats.invalidFrames++;
+                if (!(_stats.parityMinute && _stats.parityHour && _stats.parityDate))
+                    ++_stats.parityErrors;
                 if (_candidateMisses < 255) _candidateMisses++;
                 _stats.predictionMatch = 0;
             }

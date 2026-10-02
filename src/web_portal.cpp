@@ -221,7 +221,10 @@ async function update(){
     const d=await r.json();
     document.getElementById('clock').textContent=d.time||'--:--:--';
     document.getElementById('date').textContent=d.date||'Attesa frame valido';
-    document.getElementById('status').textContent=d.signalRecent?(d.clockAvailable?'Segnale presente · orologio disponibile':'Segnale presente · acquisizione'):'Segnale assente o non ancora ricevuto';
+    document.getElementById('status').textContent=d.signalRecent
+      ? (d.phaseLocked ? (d.clockAvailable?'Fase DCF77 agganciata · orologio disponibile':'Fase secondo agganciata · acquisizione minuto')
+          : 'Attività su OUT · segnale DCF77 non ancora agganciato')
+      : (d.clockAvailable?'Nessuna transizione recente · orologio dall’ultima sincronizzazione':'Nessuna transizione recente su OUT');
     const list=document.getElementById('metrics');list.replaceChildren();
     for(const [k,l]of Object.entries(labels)){const a=document.createElement('dt'),b=document.createElement('dd');a.textContent=l;b.textContent=k==='minuteSynced'?(d[k]?'AGGANCIATO':'IN ATTESA'):(d[k]??'—');list.append(a,b)}
     document.getElementById('liveFrame').textContent=d.liveFrame||'Nessun frame corrente';
@@ -258,7 +261,7 @@ async function updateReceiver(){
       ' | DECODER '+d.decoderMode+
       ' | PON '+d.pon+' · GPIO '+d.ponGpio+
       ' | OUT '+d.outLevel+' · GPIO '+d.outGpio+' ('+d.outMode+', ACTIVE '+d.polarity+')'+
-      ' | eventi '+d.eventsPerSecond+'/s'+
+      ' | fronti grezzi '+d.eventsPerSecond+'/s'+
       ' | da modifica '+d.secondsSinceChange+' s'+
       (d.ponStartActive?' | START PON in corso '+d.ponStartRemainingMs+' ms':'');
   }catch(e){
@@ -333,7 +336,7 @@ async function updateScope(){
     const d=await r.json();
     document.getElementById('scopeLine').textContent=d.ready?d.line:'Attesa primo secondo completo…';
     document.getElementById('scopeInfo').textContent=d.ready
-      ? ('attivo '+d.activeMs+' ms/s · campioni '+d.samples+'/1000 · copertura '+d.coverage+'% · fase '+d.phaseBin+'0 ms · qualità fase '+d.phaseQuality+'% · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · simbolo '+d.lastSymbol+' ('+d.lastConfidence+'%) · secondo '+(d.secondLocked?d.secondIndex:'?')+' · qualità minuto '+d.secondQuality+' · candidato59 '+d.minuteBestCandidate+' · score '+d.minuteScoreMax+'/'+d.minuteScoreNoise+' · delta '+d.secondQuality+'/'+d.minuteLockThreshold+' · RAW fronti '+d.rawRisingEdges+' · blocchi≥30ms '+d.rawLongBlocks+' · max blocco '+d.rawLongestBlockMs+' ms · SYNC? grezzi '+d.rawSyncCandidates+' · confermati '+d.syncCandidates+' · '+(d.secondLocked?'MINUTE LOCK':'accumulo minuto')+' · drop '+d.droppedWindows)
+      ? ('attivo '+d.activeMs+' ms/finestra · campioni '+d.samples+' · durata '+d.windowDurationMs+' ms · frequenza '+d.sampleRateHz+' Hz · fase '+d.phaseBin+'0 ms · qualità fase '+d.phaseQuality+'% · '+(d.phaseLocked?'PHASE LOCK':'ricerca fase')+' · simbolo '+d.lastSymbol+' ('+d.lastConfidence+'%) · secondo '+(d.secondLocked?d.secondIndex:'?')+' · qualità minuto '+d.secondQuality+' · candidato59 '+d.minuteBestCandidate+' · score '+d.minuteScoreMax+'/'+d.minuteScoreNoise+' · delta '+d.secondQuality+'/'+d.minuteLockThreshold+' · RAW fronti '+d.rawRisingEdges+' · blocchi≥30ms '+d.rawLongBlocks+' · max blocco '+d.rawLongestBlockMs+' ms · filtrati '+d.filteredRisingEdges+' fronti / '+d.filteredLongBlocks+' blocchi / max '+d.filteredLongestBlockMs+' ms · finestre scartate '+d.rejectedWindows+' · SYNC? grezzi '+d.rawSyncCandidates+' · confermati '+d.syncCandidates+' · '+(d.secondLocked?'MINUTE LOCK':'accumulo minuto')+' · drop '+d.droppedWindows)
       : '';
   }catch(e){
     document.getElementById('scopeLine').textContent='Errore lettura scope';
@@ -420,8 +423,14 @@ void status() {
     const bool clock = currentDecoder->getRunningClock(dt);
     String json; json.reserve(1400);
     json = "{\"clockAvailable\":"; json += clock ? "true" : "false";
+    SampledDcfSnapshot snap;
+    sampledDcfSnapshot(snap);
     json += ",\"signalRecent\":";
+    json += (snap.rawTransitions && snap.rawTransitionAgeMs < 3500) ? "true" : "false";
+    json += ",\"decodedSignalRecent\":";
     json += (s.totalPulses && millis()-lastPulseMs < 3500) ? "true" : "false";
+    json += ",\"phaseLocked\":"; json += snap.phaseLocked ? "true" : "false";
+    json += ",\"secondLocked\":"; json += snap.secondLocked ? "true" : "false";
     char time[16] = "", date[32] = "";
     if (clock) {
         snprintf(time,sizeof(time),"%02d:%02d:%02d",dt.hour,dt.minute,dt.second);
@@ -434,6 +443,7 @@ void status() {
     number("fieldConfidence",s.fieldConfidence);
     number("predictionMatch",s.predictionMatch);
     number("sampledSymbols",s.sampledSymbols);
+    number("rawTransitions",snap.rawTransitions);
     number("candidateMinutes",s.candidateMinutes);
     number("recoveredBits",s.recoveredBits);
     number("uncertainBits",s.uncertainBits);
@@ -475,6 +485,10 @@ void scopeStatus() {
     }
     json += "\",\"samples\":";
     json += String(snap.samples);
+    json += ",\"windowDurationMs\":";
+    json += String(snap.windowDurationUs / 1000.0f, 2);
+    json += ",\"sampleRateHz\":";
+    json += snap.windowDurationUs ? String(snap.samples * 1000000.0f / snap.windowDurationUs, 1) : String("null");
     json += ",\"activeMs\":";
     json += String(snap.activeMs);
     json += ",\"coverage\":";
@@ -522,6 +536,13 @@ void scopeStatus() {
     json += String(snap.rawLongBlocks);
     json += ",\"rawLongestBlockMs\":";
     json += String(snap.rawLongestBlockMs);
+    json += ",\"rawTransitions\":"; json += String(snap.rawTransitions);
+    json += ",\"rawTransitionAgeMs\":";
+    json += snap.rawTransitions ? String(snap.rawTransitionAgeMs) : String("null");
+    json += ",\"rejectedWindows\":"; json += String(snap.rejectedWindows);
+    json += ",\"filteredRisingEdges\":"; json += String(snap.filteredRisingEdges);
+    json += ",\"filteredLongBlocks\":"; json += String(snap.filteredLongBlocks);
+    json += ",\"filteredLongestBlockMs\":"; json += String(snap.filteredLongestBlockMs);
     json += "}";
     server.sendHeader("Cache-Control","no-store");
     server.send(200,"application/json",json);
@@ -598,6 +619,7 @@ void receiverStatus() {
               : String(0);
     json += ",\"eventsPerSecond\":";
     json += String(pulseEventsPerSecond,1);
+    json += ",\"eventSource\":\"raw_transitions\"";
     json += ",\"secondsSinceChange\":";
     json += receiverChangedMs ? String((millis() - receiverChangedMs) / 1000UL) : String(0);
     json += "}";
@@ -815,6 +837,8 @@ void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver) {
     pollScope();
     const uint32_t now = millis();
     const uint32_t total = decoder.stats().totalPulses;
+    SampledDcfSnapshot snap;
+    sampledDcfSnapshot(snap);
     if (observedPulses != total) {
         observedPulses = total;
         lastPulseMs = now;
@@ -828,12 +852,12 @@ void portalPoll(const DCF77Decoder &decoder, const ReceiverControl &receiver) {
 
     if (!rateSampleMs) {
         rateSampleMs = now;
-        rateSamplePulses = total;
+        rateSamplePulses = snap.rawTransitions;
     } else if (now - rateSampleMs >= 1000) {
         const uint32_t elapsed = now - rateSampleMs;
-        pulseEventsPerSecond = (total - rateSamplePulses) * 1000.0f / elapsed;
+        pulseEventsPerSecond = (snap.rawTransitions - rateSamplePulses) * 1000.0f / elapsed;
         rateSampleMs = now;
-        rateSamplePulses = total;
+        rateSamplePulses = snap.rawTransitions;
     }
     server.handleClient();
 }

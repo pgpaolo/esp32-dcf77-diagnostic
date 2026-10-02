@@ -19,6 +19,7 @@ struct SampledDcfSnapshot {
     bool ready = false;
     uint8_t bins[100] = {};
     uint16_t samples = 0;
+    uint32_t windowDurationUs = 0;
     uint16_t activeMs = 0;
     uint8_t phaseBin = 0;
     uint8_t phaseQuality = 0;
@@ -45,6 +46,12 @@ struct SampledDcfSnapshot {
     uint8_t rawRisingEdges = 0;
     uint8_t rawLongBlocks = 0;       // active blocks >= 30 ms
     uint16_t rawLongestBlockMs = 0;
+    uint32_t rawTransitions = 0;
+    uint32_t rawTransitionAgeMs = UINT32_MAX;
+    uint32_t rejectedWindows = 0;
+    uint8_t filteredRisingEdges = 0;
+    uint8_t filteredLongBlocks = 0;
+    uint16_t filteredLongestBlockMs = 0;
 };
 
 void sampledDcfBegin(uint8_t pin, bool activeLow);

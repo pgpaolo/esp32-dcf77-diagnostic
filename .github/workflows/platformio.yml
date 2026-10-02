@@ -16,6 +16,10 @@ jobs:
         run: python -m pip install --upgrade platformio
       - name: Test real DCF77 1 kHz reference fixture
         run: python tools/dcf77_reference_fixture.py
+      - name: Test production DCF77 sampler and decoder
+        run: |
+          g++ -std=c++17 -O1 -g -fsanitize=address,undefined -DESP8266 -Itools/tests -Iinclude tools/tests/decoder_regression.cpp src/dcf77_decoder.cpp -o /tmp/dcf77-tests
+          /tmp/dcf77-tests
       - name: Build generic DCF77 profile
         run: pio run -e ttgo-t-display
       - name: Build dual 60-77.5 kHz profile

@@ -295,7 +295,8 @@ void loop() {
                                      sampled.bit,
                                      sampled.confidence,
                                      sampled.minuteMarker,
-                                     sampled.markerCandidate);
+                                     sampled.markerCandidate,
+                                     sampled.startUs);
     }
 #else
     RawPulse p;

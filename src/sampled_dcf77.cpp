@@ -20,9 +20,17 @@ volatile uint8_t binIndex = 0;
 volatile uint8_t samplesInBin = 0;
 volatile uint16_t samplesInWindow = 0;
 volatile uint32_t droppedWindows = 0;
+volatile uint32_t captureStartUs = 0;
+volatile uint32_t readyStartUs = 0;
+volatile uint32_t readyDurationUs = 0;
+volatile uint16_t readySamples = 0;
+volatile uint32_t rawTransitions = 0;
+volatile uint32_t lastRawTransitionUs = 0;
+volatile bool previousRawActive = false;
 
 uint8_t previousWindow[BINS] = {};
 bool havePreviousWindow = false;
+uint32_t previousWindowStartUs = 0;
 
 // Persistent phase score. This version proved more stable with the MASO-S-R1
 // on HW-364A than the direct convolution port, while the downstream symbol
@@ -64,7 +72,6 @@ uint8_t eventHead = 0;
 uint8_t eventTail = 0;
 
 bool previousWasMarker = false;
-uint32_t syntheticStartUs = 0;
 
 inline bool IRAM_ATTR isActiveLevel() {
     const bool high = digitalRead(rxPin) != 0;
@@ -72,7 +79,13 @@ inline bool IRAM_ATTR isActiveLevel() {
 }
 
 void IRAM_ATTR onSampleTimer() {
-    if (isActiveLevel()) {
+    const bool active = isActiveLevel();
+    if (active != previousRawActive) {
+        previousRawActive = active;
+        ++rawTransitions;
+        lastRawTransitionUs = micros();
+    }
+    if (active) {
         uint8_t &v = const_cast<uint8_t&>(capture[writeBuffer][binIndex]);
         if (v < SAMPLES_PER_BIN) v++;
     }
@@ -85,6 +98,11 @@ void IRAM_ATTR onSampleTimer() {
 
             if (windowReady) droppedWindows++;
             readyBuffer = writeBuffer;
+            const uint32_t nowUs = micros();
+            readyStartUs = captureStartUs;
+            readyDurationUs = nowUs - captureStartUs;
+            readySamples = samplesInWindow;
+            captureStartUs = nowUs;
             windowReady = true;
 
             writeBuffer ^= 1U;
@@ -146,6 +164,17 @@ void filteredRawMetrics(const uint8_t filtered[200],
         wasActive = active;
     }
     if (run >= 3 && blocks < 255) ++blocks;
+
+    // Complete the pulse which starts in the first hardware window but ends
+    // in the second. Do not count unrelated pulses from that second window.
+    // For example, a 100 ms pulse at bin 95 is 50+50 ms, not two invalid runs.
+    if (run) {
+        uint16_t completeRun = run;
+        for (uint16_t i = 100; i < 200 && filtered[i]; ++i) ++completeRun;
+        if (completeRun > longestBins)
+            longestBins = static_cast<uint8_t>(completeRun > 100 ? 100 : completeRun);
+        if (run < 3 && completeRun >= 3 && blocks < 255) ++blocks;
+    }
 }
 
 bool phaseBinActive(const uint8_t combined[200], uint8_t idx) {
@@ -193,6 +222,9 @@ void findPhase(const uint8_t combined[200]) {
 
     uint8_t filteredEdges = 0, filteredBlocks = 0, filteredLongest = 0;
     filteredRawMetrics(filtered, filteredEdges, filteredBlocks, filteredLongest);
+    snapshotState.filteredRisingEdges = filteredEdges;
+    snapshotState.filteredLongBlocks = filteredBlocks;
+    snapshotState.filteredLongestBlockMs = static_cast<uint16_t>(filteredLongest) * 10U;
 
     // Gate obvious garbage before acquisition/tracking. A useful DCF77 second
     // should expose one dominant pulse after light temporal filtering.
@@ -202,6 +234,7 @@ void findPhase(const uint8_t combined[200]) {
         (filteredLongest >= 7); // >=70 ms
 
     if (!rawPlausible) {
+        ++snapshotState.rejectedWindows;
         if (currentPhaseLocked) {
             if (phaseMissedSeconds < 255) ++phaseMissedSeconds;
             if (currentPhaseQuality > 20) currentPhaseQuality -= 20;
@@ -494,8 +527,10 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
 
     for (int8_t shift = -3; shift <= 3; ++shift) {
         int candidate = static_cast<int>(currentPhaseBin) + shift;
-        while (candidate < 0) candidate += 100;
-        while (candidate >= 100) candidate -= 100;
+        // Wrapping the alignment search selects a different DCF second.
+        // At phase 0, start 97 would include the next second's bit-0 pulse
+        // and turn the missing minute-marker pulse into a false zero.
+        if (candidate < 0 || candidate >= 100) continue;
 
         const uint16_t st = static_cast<uint16_t>(candidate);
         const uint8_t firstCount = majorityActiveBins(filtered, st, 10);
@@ -517,8 +552,7 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
     const bool secondActive = bestSecondCount > 5;
 
     SampledDcfEvent e;
-    e.startUs = syntheticStartUs;
-    syntheticStartUs += 1000000UL;
+    e.startUs = previousWindowStartUs + static_cast<uint32_t>(currentPhaseBin) * 10000UL;
     e.minuteMarker = false;
     e.markerCandidate = false;
 
@@ -621,11 +655,18 @@ void sampledDcfReset() {
     samplesInBin = 0;
     samplesInWindow = 0;
     droppedWindows = 0;
+    captureStartUs = micros();
+    readyStartUs = readyDurationUs = 0;
+    readySamples = 0;
+    rawTransitions = 0;
+    lastRawTransitionUs = 0;
+    previousRawActive = isActiveLevel();
     interrupts();
 
     memset(previousWindow, 0, sizeof(previousWindow));
     memset(phaseScore, 0, sizeof(phaseScore));
     havePreviousWindow = false;
+    previousWindowStartUs = 0;
     currentPhaseBin = 0;
     currentPhaseQuality = 0;
     currentPhaseLocked = false;
@@ -650,7 +691,6 @@ void sampledDcfReset() {
     snapshotState = SampledDcfSnapshot{};
     eventHead = eventTail = 0;
     previousWasMarker = false;
-    syntheticStartUs = micros();
 }
 
 void analyzeRawWindow(const uint8_t bins[BINS]) {
@@ -690,11 +730,16 @@ void sampledDcfPoll() {
 
     uint8_t current[BINS];
     uint32_t drops;
+    uint32_t currentStartUs, durationUs;
+    uint16_t actualSamples;
     noInterrupts();
     const uint8_t rb = readyBuffer;
     memcpy(current, (const void*)capture[rb], BINS);
     windowReady = false;
     drops = droppedWindows;
+    currentStartUs = readyStartUs;
+    durationUs = readyDurationUs;
+    actualSamples = readySamples;
     interrupts();
 
     uint16_t activeMs = 0;
@@ -702,7 +747,8 @@ void sampledDcfPoll() {
 
     snapshotState.ready = true;
     memcpy(snapshotState.bins, current, BINS);
-    snapshotState.samples = 1000;
+    snapshotState.samples = actualSamples;
+    snapshotState.windowDurationUs = durationUs;
     snapshotState.activeMs = activeMs;
     snapshotState.secondsObserved++;
     snapshotState.droppedWindows = drops;
@@ -745,6 +791,7 @@ void sampledDcfPoll() {
     }
 
     memcpy(previousWindow, current, BINS);
+    previousWindowStartUs = currentStartUs;
     havePreviousWindow = true;
 }
 
@@ -757,6 +804,12 @@ bool sampledDcfPopEvent(SampledDcfEvent &out) {
 
 void sampledDcfSnapshot(SampledDcfSnapshot &out) {
     out = snapshotState;
+    noInterrupts();
+    const uint32_t transitions = rawTransitions;
+    const uint32_t lastUs = lastRawTransitionUs;
+    interrupts();
+    out.rawTransitions = transitions;
+    out.rawTransitionAgeMs = transitions ? (micros() - lastUs) / 1000UL : UINT32_MAX;
 }
 
 #endif
