@@ -95,7 +95,7 @@ void DCF77Decoder::recordSampledTrace(uint8_t secondIndex, int8_t bit,
     t.sampled = true;
     t.confidence = confidence;
     t.secondIndex = secondIndex;
-    t.framePos = secondIndex < 59 ? secondIndex : 59;
+    t.framePos = secondIndex < 59 ? secondIndex : 0;
 
     _pulseTraceHead = (_pulseTraceHead + 1) % PULSE_TRACE_SIZE;
     if (_pulseTraceCount < PULSE_TRACE_SIZE) _pulseTraceCount++;
