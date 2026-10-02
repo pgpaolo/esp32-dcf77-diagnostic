@@ -100,6 +100,54 @@ uint16_t windowSignal(const uint8_t combined[200], uint16_t start, uint16_t len)
     return sum;
 }
 
+void buildFilteredWindow(const uint8_t combined[200], uint8_t filtered[200]) {
+    // Start from 10 ms boolean activity.
+    for (uint16_t i = 0; i < 200; ++i) filtered[i] = combined[i] > 5 ? 10 : 0;
+
+    // 1) Remove isolated one-bin bursts (<=10 ms).
+    for (uint16_t i = 1; i < 199; ++i) {
+        if (filtered[i] && !filtered[i - 1] && !filtered[i + 1]) filtered[i] = 0;
+    }
+
+    // 2) Close gaps up to 20 ms between active regions.
+    for (uint16_t i = 1; i < 198; ++i) {
+        if (!filtered[i] && filtered[i - 1] && filtered[i + 1]) filtered[i] = 10;
+    }
+    for (uint16_t i = 1; i < 197; ++i) {
+        if (!filtered[i] && !filtered[i + 1] &&
+            filtered[i - 1] && filtered[i + 2]) {
+            filtered[i] = 10;
+            filtered[i + 1] = 10;
+        }
+    }
+}
+
+void filteredRawMetrics(const uint8_t filtered[200],
+                        uint8_t &edges,
+                        uint8_t &blocks,
+                        uint8_t &longestBins) {
+    edges = 0;
+    blocks = 0;
+    longestBins = 0;
+    uint8_t run = 0;
+    bool wasActive = false;
+
+    // Metrics for the first decoded second only.
+    for (uint8_t i = 0; i < 100; ++i) {
+        const bool active = filtered[i] != 0;
+        if (active && !wasActive && edges < 255) ++edges;
+        if (active) {
+            if (run < 100) ++run;
+            if (run > longestBins) longestBins = run;
+        } else {
+            if (run >= 3 && blocks < 255) ++blocks;
+            run = 0;
+        }
+        wasActive = active;
+    }
+    if (run >= 3 && blocks < 255) ++blocks;
+}
+
 bool phaseBinActive(const uint8_t combined[200], uint8_t idx) {
     return combined[idx] > 5;
 }
@@ -140,6 +188,35 @@ bool candidateRisingEdge(const uint8_t combined[200], uint8_t idx, uint8_t &stre
 }
 
 void findPhase(const uint8_t combined[200]) {
+    uint8_t filtered[200];
+    buildFilteredWindow(combined, filtered);
+
+    uint8_t filteredEdges = 0, filteredBlocks = 0, filteredLongest = 0;
+    filteredRawMetrics(filtered, filteredEdges, filteredBlocks, filteredLongest);
+
+    // Gate obvious garbage before acquisition/tracking. A useful DCF77 second
+    // should expose one dominant pulse after light temporal filtering.
+    const bool rawPlausible =
+        (filteredEdges <= 3) &&
+        (filteredBlocks <= 3) &&
+        (filteredLongest >= 7); // >=70 ms
+
+    if (!rawPlausible) {
+        if (currentPhaseLocked) {
+            if (phaseMissedSeconds < 255) ++phaseMissedSeconds;
+            if (currentPhaseQuality > 20) currentPhaseQuality -= 20;
+            else currentPhaseQuality = 0;
+            if (phaseMissedSeconds >= 2) {
+                currentPhaseLocked = false;
+                phaseStableSeconds = 0;
+                phaseCandidateStable = 0;
+            }
+        } else {
+            currentPhaseQuality = 0;
+            phaseCandidateStable = 0;
+        }
+        return;
+    }
     // Background acquisition histogram: a real DCF77 pulse start repeats at
     // nearly the same modulo-1-second phase, while noise edges are scattered.
     for (uint8_t i = 0; i < BINS; ++i) {
@@ -148,7 +225,7 @@ void findPhase(const uint8_t combined[200]) {
 
     for (uint8_t i = 0; i < BINS; ++i) {
         uint8_t strength = 0;
-        if (!candidateRisingEdge(combined, i, strength)) continue;
+        if (!candidateRisingEdge(filtered, i, strength)) continue;
 
         const int32_t weight = static_cast<int32_t>(strength) * 5;
         phaseScore[i] += weight;
@@ -219,7 +296,7 @@ void findPhase(const uint8_t combined[200]) {
         const uint8_t idx = static_cast<uint8_t>(p);
 
         uint8_t strength = 0;
-        if (!candidateRisingEdge(combined, idx, strength)) continue;
+        if (!candidateRisingEdge(filtered, idx, strength)) continue;
 
         const uint8_t distance = circularDistance100(idx, currentPhaseBin);
         if (!found || strength > observedStrength ||
@@ -386,6 +463,9 @@ uint8_t majorityActiveBins(const uint8_t combined[200], uint16_t start, uint8_t 
 }
 
 void classifyPreviousSecond(const uint8_t combined[200]) {
+    uint8_t filtered[200];
+    buildFilteredWindow(combined, filtered);
+
     if (!currentPhaseLocked) {
         pendingMarkerCandidate = false;
         snapshotState.lastBit = -1;
@@ -418,8 +498,8 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
         while (candidate >= 100) candidate -= 100;
 
         const uint16_t st = static_cast<uint16_t>(candidate);
-        const uint8_t firstCount = majorityActiveBins(combined, st, 10);
-        const uint8_t secondCount = majorityActiveBins(combined, st + 10, 10);
+        const uint8_t firstCount = majorityActiveBins(filtered, st, 10);
+        const uint8_t secondCount = majorityActiveBins(filtered, st + 10, 10);
 
         // Prefer a clear active first half. Tie-break toward less late
         // activity so a 100 ms pulse is not shifted into the second half.
