@@ -29,6 +29,15 @@ uint8_t currentPhaseQuality = 0;
 bool currentPhaseLocked = false;
 uint8_t phaseStableSeconds = 0;
 
+// 60-position minute phase accumulator. A candidate bin represents the raw
+// tick that would correspond to DCF second 59 (the missing-pulse marker).
+uint8_t minuteScore[60] = {};
+uint8_t rawSecondTick = 0;
+uint8_t minuteBest = 0;
+uint8_t minuteQuality = 0;
+bool minutePhaseLocked = false;
+uint8_t minuteStable = 0;
+
 SampledDcfSnapshot snapshotState;
 
 SampledDcfEvent eventQueue[EVENT_QUEUE_SIZE];
@@ -108,6 +117,72 @@ void findPhase(const uint8_t combined[200]) {
     currentPhaseLocked = phaseStableSeconds >= 4;
 }
 
+uint8_t wrap60(int v) {
+    while (v < 0) v += 60;
+    while (v >= 60) v -= 60;
+    return static_cast<uint8_t>(v);
+}
+
+void satAdd(uint8_t &v, uint8_t n) {
+    v = (v > 255 - n) ? 255 : static_cast<uint8_t>(v + n);
+}
+
+void satSub(uint8_t &v, uint8_t n) {
+    v = (v < n) ? 0 : static_cast<uint8_t>(v - n);
+}
+
+void updateMinutePhase(const SampledDcfEvent &e) {
+    // Slow decay prevents stale evidence from dominating forever.
+    for (uint8_t i = 0; i < 60; ++i) {
+        if (minuteScore[i] > 0) minuteScore[i]--;
+    }
+
+    if (e.minuteMarker) {
+        // Current raw tick should be DCF second 59.
+        satAdd(minuteScore[rawSecondTick], 18);
+        satSub(minuteScore[wrap60(rawSecondTick - 1)], 4);
+        satSub(minuteScore[wrap60(rawSecondTick + 1)], 4);
+    } else if (e.bit == 0) {
+        // If this is DCF second 0, marker candidate is one raw tick behind.
+        satAdd(minuteScore[wrap60(rawSecondTick - 1)], 3);
+        // A zero at DCF second 20 contradicts that candidate.
+        satSub(minuteScore[wrap60(rawSecondTick - 21)], 3);
+    } else if (e.bit == 1) {
+        // DCF second 20 is fixed to 1.
+        satAdd(minuteScore[wrap60(rawSecondTick - 21)], 3);
+        // A one at DCF second 0 contradicts that candidate.
+        satSub(minuteScore[wrap60(rawSecondTick - 1)], 3);
+    }
+
+    uint8_t best = 0, second = 0, bestIdx = 0;
+    for (uint8_t i = 0; i < 60; ++i) {
+        const uint8_t v = minuteScore[i];
+        if (v >= best) {
+            second = best;
+            best = v;
+            bestIdx = i;
+        } else if (v > second) {
+            second = v;
+        }
+    }
+
+    minuteBest = bestIdx;
+    minuteQuality = best > second ? static_cast<uint8_t>(best - second) : 0;
+
+    // Lock only after repeated separation from competing positions.
+    if (minuteQuality >= 10 && best >= 18) {
+        if (minuteStable < 255) minuteStable++;
+    } else if (minuteStable > 0) {
+        minuteStable--;
+    }
+    minutePhaseLocked = minuteStable >= 4;
+}
+
+uint8_t decodedSecondForRawTick(uint8_t rawTick) {
+    // minuteBest corresponds to DCF second 59.
+    return wrap60(static_cast<int>(rawTick) - static_cast<int>(minuteBest) - 1);
+}
+
 void pushEvent(const SampledDcfEvent &e) {
     const uint8_t next = (eventHead + 1U) % EVENT_QUEUE_SIZE;
     if (next == eventTail) return;
@@ -154,10 +229,28 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
         previousWasMarker = false;
     }
 
+    updateMinutePhase(e);
+
+    SampledDcfEvent tagged = e;
+    tagged.secondLocked = minutePhaseLocked;
+    tagged.secondQuality = minuteQuality;
+    tagged.secondIndex = minutePhaseLocked ? decodedSecondForRawTick(rawSecondTick) : 255;
+
+    // Replace the just-enqueued untagged event with a tagged copy.
+    if (eventHead != eventTail) {
+        const uint8_t last = eventHead == 0 ? EVENT_QUEUE_SIZE - 1 : eventHead - 1;
+        eventQueue[last] = tagged;
+    }
+
     snapshotState.lastBit = e.bit;
     snapshotState.lastMinuteMarker = e.minuteMarker;
     snapshotState.lastConfidence = e.confidence;
     snapshotState.lastPulseMs = e.pulseMs;
+    snapshotState.secondLocked = minutePhaseLocked;
+    snapshotState.secondQuality = minuteQuality;
+    snapshotState.secondIndex = tagged.secondIndex;
+
+    rawSecondTick = static_cast<uint8_t>((rawSecondTick + 1U) % 60U);
 }
 
 } // namespace
@@ -199,6 +292,12 @@ void sampledDcfReset() {
     currentPhaseQuality = 0;
     currentPhaseLocked = false;
     phaseStableSeconds = 0;
+    memset(minuteScore, 0, sizeof(minuteScore));
+    rawSecondTick = 0;
+    minuteBest = 0;
+    minuteQuality = 0;
+    minutePhaseLocked = false;
+    minuteStable = 0;
     snapshotState = SampledDcfSnapshot{};
     eventHead = eventTail = 0;
     previousWasMarker = false;
