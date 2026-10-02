@@ -116,8 +116,11 @@ void DCF77Decoder::processPulse(const RawPulse &pulse) {
         _stats.frameBitCount = 0;
         memset(_frame, -1, sizeof(_frame));
     } else if (pulse.periodUs > DCF_SECOND_MAX_US && pulse.periodUs != 0) {
+        // A single badly timed edge must not destroy an acquired frame.
+        // Noise-resilient DCF77 decoders keep phase/state through isolated
+        // disturbances and only abandon it after a clearly impossible gap.
         _stats.timingErrors++;
-        if (_stats.minuteSynced) {
+        if (_stats.minuteSynced && pulse.periodUs > 3000000UL) {
             _stats.minuteSynced = false;
             _frameCount = 0;
             _stats.frameBitCount = 0;
