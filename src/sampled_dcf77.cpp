@@ -136,6 +136,7 @@ void classifyPreviousSecond(const uint8_t combined[200]) {
         e.pulseMs = 0;
         e.confidence = noise < 120 ? 90 : 60;
         previousWasMarker = true;
+        pushEvent(e);
     } else {
         e.minuteMarker = false;
         e.bit = firstActive ? (secondActive ? 1 : 0) : -1;
