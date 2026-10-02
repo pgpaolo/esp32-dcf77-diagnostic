@@ -39,6 +39,7 @@ struct SampledDcfSnapshot {
     uint8_t minuteScoreNoise = 0;
     uint8_t minuteLockThreshold = 12;
     uint32_t syncCandidates = 0;
+    uint32_t rawSyncCandidates = 0;
 };
 
 void sampledDcfBegin(uint8_t pin, bool activeLow);
