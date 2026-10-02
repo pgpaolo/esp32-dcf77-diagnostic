@@ -4,10 +4,11 @@
 
 È disponibile il profilo `hw364a`, con OLED SSD1306 128x64, tre pagine automatiche
 e portale Wi-Fi di diagnostica. Compilazione: `pio run -e hw364a`.
-Collegarsi alla rete aperta `DCF77-HW364A-xxxxxx` e aprire http://192.168.4.1 .\nDal portale è possibile scansionare le reti Wi-Fi locali, selezionare un SSID e configurare la connessione STA. L'access point di configurazione resta attivo anche quando il dispositivo è collegato alla LAN.
+Collegarsi alla rete aperta `DCF77-HW364A-xxxxxx` e aprire http://192.168.4.1 .
+Dal portale è possibile scansionare le reti Wi-Fi locali, selezionare un SSID e configurare la connessione STA. L'access point di configurazione resta attivo anche quando il dispositivo è collegato alla LAN.
 
 Vedere [istruzioni HW364A](docs/HW364A.md) prima di collegare il ricevitore MASO-S-R1:
-VDD, SEL, PON e tipo di uscita devono essere verificati; SEL/PON non vengono pilotati per default.
+il pinout PCB è confermato come SEL - OUT - PON - GND - VDD. Sul profilo HW364A il cablaggio è SEL=D2/GPIO4, OUT=D7/GPIO13, PON=D1/GPIO5; la polarità elettrica di SEL/PON resta verificabile dal portale.
 I profili ESP32 descritti sotto conservano display TFT e comandi originali.
 
 Portable long-wave time-signal analyzer for the classic **LILYGO / TTGO T-Display ESP32** with integrated **1.14-inch ST7789 240x135 TFT**.
@@ -38,7 +39,8 @@ At **77.5 kHz** the firmware performs complete DCF77 decoding. At **60 kHz** it 
 - optional analog envelope input
 - optional GPS PPS input for receiver-vs-PPS offset measurements
 - serial CSV-like diagnostic logging
-- four TFT pages selected with the built-in button\n- HW-364A captive-style local portal with open AP, Wi-Fi scan and LAN connection setup
+- four TFT pages selected with the built-in button
+- HW-364A captive-style local portal with open AP, Wi-Fi scan and LAN connection setup
 
 ## Hardware target
 
