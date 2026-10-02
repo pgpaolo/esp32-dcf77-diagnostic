@@ -152,7 +152,7 @@ th:first-child,td:first-child{text-align:left}
 <dl id="metrics"></dl>
 
 <h2>Monitor impulsi DCF77</h2>
-<p class="muted">Ultimi impulsi ricevuti, dal più recente. Un DCF77 pulito dovrebbe mostrare larghezze ~100/200 ms e periodo ~1000 ms; il marker di minuto produce un intervallo ~2000 ms.</p>
+<p class="muted">Ultimi impulsi ricevuti, dal più recente. Il frame avanza solo sugli eventi con timing DCF77 valido (~1 s, oppure marker minuto ~2 s). Gli eventi fuori timing restano visibili qui ma non spostano più la posizione del frame.</p>
 <table>
 <thead><tr><th>Età</th><th>Impulso ms</th><th>Periodo ms</th><th>Bit</th><th>Timing</th><th>Frame</th></tr></thead>
 <tbody id="pulseRows"><tr><td colspan="6">Attesa impulsi…</td></tr></tbody>
@@ -162,7 +162,7 @@ th:first-child,td:first-child{text-align:left}
 <h2>Ultimo frame completato</h2><pre id="frame">—</pre>
 
 <script>
-const labels={quality:'Qualità temporale (%)',frameBitCount:'Posizione frame',lastBit:'Ultimo bit',pulseMs:'Impulso (ms)',periodMs:'Periodo (ms)',jitterMs:'Jitter (ms)',rmsMs:'Jitter RMS (ms)',validPulses:'Impulsi validi',invalidPulses:'Impulsi invalidi',validFrames:'Frame validi',invalidFrames:'Frame invalidi',parityErrors:'Errori parità',timingErrors:'Errori temporali',glitches:'Glitch',frameAgeSeconds:'Età ultimo frame (s)',ppsUs:'Offset PPS (µs)',freeHeap:'RAM libera (byte)'};
+const labels={quality:'Qualità temporale (%)',minuteSynced:'Sincronizzazione minuto',minuteMarkers:'Marker minuto rilevati',frameBitCount:'Posizione frame',lastBit:'Ultimo bit',pulseMs:'Impulso (ms)',periodMs:'Periodo (ms)',jitterMs:'Jitter (ms)',rmsMs:'Jitter RMS (ms)',validPulses:'Impulsi validi',invalidPulses:'Impulsi invalidi',validFrames:'Frame validi',invalidFrames:'Frame invalidi',parityErrors:'Errori parità',timingErrors:'Errori temporali',glitches:'Glitch',frameAgeSeconds:'Età ultimo frame (s)',ppsUs:'Offset PPS (µs)',freeHeap:'RAM libera (byte)'};
 
 async function update(){
   if(document.hidden)return;
@@ -174,7 +174,7 @@ async function update(){
     document.getElementById('date').textContent=d.date||'Attesa frame valido';
     document.getElementById('status').textContent=d.signalRecent?(d.clockAvailable?'Segnale presente · orologio disponibile':'Segnale presente · acquisizione'):'Segnale assente o non ancora ricevuto';
     const list=document.getElementById('metrics');list.replaceChildren();
-    for(const [k,l]of Object.entries(labels)){const a=document.createElement('dt'),b=document.createElement('dd');a.textContent=l;b.textContent=d[k]??'—';list.append(a,b)}
+    for(const [k,l]of Object.entries(labels)){const a=document.createElement('dt'),b=document.createElement('dd');a.textContent=l;b.textContent=k==='minuteSynced'?(d[k]?'AGGANCIATO':'IN ATTESA'):(d[k]??'—');list.append(a,b)}
     document.getElementById('liveFrame').textContent=d.liveFrame||'Nessun frame corrente';
     document.getElementById('frame').textContent=d.frame||'Nessun frame completato';
   }catch(e){document.getElementById('status').textContent='Connessione al dispositivo persa'}
@@ -336,7 +336,10 @@ void status() {
     }
     json += ",\"time\":\""; json += time; json += "\",\"date\":\""; json += date; json += "\"";
     auto number = [&](const char *key, double value) { json += ",\""; json += key; json += "\":"; json += String(value,3); };
-    number("quality",s.quality); number("frameBitCount",s.frameBitCount); number("lastBit",s.lastBit);
+    number("quality",s.quality);
+    json += ",\"minuteSynced\":"; json += s.minuteSynced ? "true" : "false";
+    number("minuteMarkers",s.minuteMarkers);
+    number("frameBitCount",s.frameBitCount); number("lastBit",s.lastBit);
     number("pulseMs",s.lastPulseWidthUs/1000.0); number("periodMs",s.lastPeriodUs/1000.0);
     number("jitterMs",s.lastJitterUs/1000.0); number("rmsMs",s.jitterRmsUs/1000.0);
     number("validPulses",s.validPulses); number("invalidPulses",s.invalidPulses);
