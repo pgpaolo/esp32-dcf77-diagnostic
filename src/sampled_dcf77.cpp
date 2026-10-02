@@ -44,6 +44,7 @@ uint8_t minuteScoreNoise = 0;
 bool minutePhaseLocked = false;
 uint8_t minuteStable = 0;
 uint32_t syncCandidateCount = 0;
+uint32_t rawSyncCandidateCount = 0;
 
 // A quiet second is only a provisional marker. DCF77 second 59 is followed
 // by second 0, whose bit is fixed to 0. Confirm the marker only when the next
@@ -228,6 +229,8 @@ void updateMinutePhase(const SampledDcfEvent &e) {
     }
 
     if (e.markerCandidate) {
+        rawSyncCandidateCount++;
+        snapshotState.rawSyncCandidates = rawSyncCandidateCount;
         pendingMarkerCandidate = true;
         pendingMarkerRawTick = rawSecondTick;
         pendingMarkerConfidence = e.confidence;
@@ -434,6 +437,7 @@ void sampledDcfReset() {
     minutePhaseLocked = false;
     minuteStable = 0;
     syncCandidateCount = 0;
+    rawSyncCandidateCount = 0;
     pendingMarkerCandidate = false;
     pendingMarkerRawTick = 0;
     pendingMarkerConfidence = 0;
