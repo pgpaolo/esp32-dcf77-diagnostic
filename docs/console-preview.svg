@@ -1,38 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
-<rect width="1440" height="900" fill="#10202d"/>
-<text x="70" y="70" fill="#eef6fb" font-family="Arial,Helvetica,sans-serif" font-size="34" font-weight="700">DCF77 · HW-364A</text>
-<text x="70" y="108" fill="#8fc7e8" font-family="Arial,Helvetica,sans-serif" font-size="18">Ricevitore DCF77 77,5 kHz · ESP8266 NodeMCU · OLED + Web Console</text>
-
-<rect x="70" y="145" rx="18" ry="18" width="1300" height="150" fill="#193346"/>
-<text x="105" y="190" fill="#8fc7e8" font-family="Arial,Helvetica,sans-serif" font-size="18">ORA RICEVUTA</text>
-<text x="105" y="255" fill="#ffffff" font-family="Arial,Helvetica,sans-serif" font-size="56" font-weight="700">18:42:31</text>
-<text x="460" y="232" fill="#eef6fb" font-family="Arial,Helvetica,sans-serif" font-size="26">05/10/2026 · CEST</text>
-<text x="460" y="266" fill="#62f0aa" font-family="Arial,Helvetica,sans-serif" font-size="20">FRAME VALIDO · SINCRONIZZATO</text>
-
-<rect x="70" y="325" rx="18" ry="18" width="620" height="250" fill="#193346"/>
-<text x="105" y="370" fill="#ffffff" font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700">Stato decoder</text>
-<g font-family="Arial,Helvetica,sans-serif" font-size="19">
-<text x="105" y="415" fill="#cfe8f6">Stato minuto</text><text x="620" y="415" text-anchor="end" fill="#62f0aa">SYNC</text>
-<text x="105" y="455" fill="#cfe8f6">Qualità</text><text x="620" y="455" text-anchor="end" fill="#62f0aa">94%</text>
-<text x="105" y="495" fill="#cfe8f6">Posizione frame</text><text x="620" y="495" text-anchor="end" fill="#ffffff">37 / 59</text>
-<text x="105" y="535" fill="#cfe8f6">Marker minuto</text><text x="620" y="535" text-anchor="end" fill="#ffffff">12</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="820" viewBox="0 0 1400 820">
+<rect width="1400" height="820" fill="#10202d"/>
+<rect x="70" y="55" width="1260" height="710" rx="24" fill="#193346"/>
+<text x="110" y="115" fill="#eef6fb" font-family="Arial,Helvetica,sans-serif" font-size="34" font-weight="700">DCF77 · HW-364A</text>
+<rect x="110" y="145" width="1180" height="125" rx="16" fill="#102a3a"/>
+<text x="145" y="205" fill="#62f0aa" font-family="Arial,Helvetica,sans-serif" font-size="48" font-weight="700">17:42:18</text>
+<text x="145" y="242" fill="#b8d8e8" font-family="Arial,Helvetica,sans-serif" font-size="22">05/10/2026 CEST · frame valido</text>
+<rect x="110" y="300" width="560" height="255" rx="16" fill="#102a3a"/>
+<text x="145" y="345" fill="#eef6fb" font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700">Stato ricezione</text>
+<g font-family="Arial,Helvetica,sans-serif" font-size="20">
+<text x="145" y="390" fill="#9fc7d8">Stato minuto</text><text x="610" y="390" text-anchor="end" fill="#62f0aa">SYNC</text>
+<text x="145" y="425" fill="#9fc7d8">Qualità</text><text x="610" y="425" text-anchor="end" fill="#62f0aa">96%</text>
+<text x="145" y="460" fill="#9fc7d8">Posizione frame</text><text x="610" y="460" text-anchor="end" fill="#eef6fb">37 / 59</text>
+<text x="145" y="495" fill="#9fc7d8">Ultimo impulso</text><text x="610" y="495" text-anchor="end" fill="#eef6fb">101.2 ms · bit 0</text>
+<text x="145" y="530" fill="#9fc7d8">Periodo</text><text x="610" y="530" text-anchor="end" fill="#eef6fb">1000.4 ms</text>
 </g>
-
-<rect x="720" y="325" rx="18" ry="18" width="650" height="250" fill="#193346"/>
-<text x="755" y="370" fill="#ffffff" font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700">Segnale</text>
-<g font-family="Arial,Helvetica,sans-serif" font-size="19">
-<text x="755" y="415" fill="#cfe8f6">Ultimo impulso</text><text x="1300" y="415" text-anchor="end" fill="#62f0aa">100.3 ms · bit 0</text>
-<text x="755" y="455" fill="#cfe8f6">Periodo</text><text x="1300" y="455" text-anchor="end" fill="#62f0aa">1000.1 ms</text>
-<text x="755" y="495" fill="#cfe8f6">Jitter</text><text x="1300" y="495" text-anchor="end" fill="#ffffff">+0.1 ms</text>
-<text x="755" y="535" fill="#cfe8f6">Frame validi / KO</text><text x="1300" y="535" text-anchor="end" fill="#ffffff">8 / 1</text>
+<rect x="700" y="300" width="590" height="255" rx="16" fill="#102a3a"/>
+<text x="735" y="345" fill="#eef6fb" font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700">Statistiche</text>
+<g font-family="Arial,Helvetica,sans-serif" font-size="20">
+<text x="735" y="390" fill="#9fc7d8">Marker minuto</text><text x="1235" y="390" text-anchor="end" fill="#eef6fb">18</text>
+<text x="735" y="425" fill="#9fc7d8">Frame validi</text><text x="1235" y="425" text-anchor="end" fill="#62f0aa">17</text>
+<text x="735" y="460" fill="#9fc7d8">Frame invalidi</text><text x="1235" y="460" text-anchor="end" fill="#eef6fb">1</text>
+<text x="735" y="495" fill="#9fc7d8">Parità KO</text><text x="1235" y="495" text-anchor="end" fill="#eef6fb">0</text>
+<text x="735" y="530" fill="#9fc7d8">Timing KO</text><text x="1235" y="530" text-anchor="end" fill="#eef6fb">2</text>
 </g>
-
-<rect x="70" y="610" rx="18" ry="18" width="1300" height="220" fill="#193346"/>
-<text x="105" y="655" fill="#ffffff" font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700">Impulsi recenti</text>
+<rect x="110" y="585" width="1180" height="135" rx="16" fill="#102a3a"/>
+<text x="145" y="625" fill="#eef6fb" font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="700">Impulsi recenti</text>
 <g font-family="Arial,Helvetica,sans-serif" font-size="18">
-<text x="105" y="700" fill="#8fc7e8">Età</text><text x="340" y="700" fill="#8fc7e8">Impulso</text><text x="570" y="700" fill="#8fc7e8">Periodo</text><text x="820" y="700" fill="#8fc7e8">Bit</text><text x="1080" y="700" fill="#8fc7e8">Stato</text>
-<line x1="105" y1="715" x2="1325" y2="715" stroke="#355268"/>
-<text x="105" y="748" fill="#62f0aa">0.4 s</text><text x="340" y="748" fill="#62f0aa">100.3 ms</text><text x="570" y="748" fill="#62f0aa">1000.1 ms</text><text x="820" y="748" fill="#62f0aa">0</text><text x="1080" y="748" fill="#62f0aa">OK</text>
-<text x="105" y="790" fill="#62f0aa">1.4 s</text><text x="340" y="790" fill="#62f0aa">199.8 ms</text><text x="570" y="790" fill="#62f0aa">999.9 ms</text><text x="820" y="790" fill="#62f0aa">1</text><text x="1080" y="790" fill="#62f0aa">OK</text>
+<text x="145" y="662" fill="#9fc7d8">Età</text><text x="360" y="662" fill="#9fc7d8">Impulso</text><text x="610" y="662" fill="#9fc7d8">Periodo</text><text x="865" y="662" fill="#9fc7d8">Bit</text><text x="1095" y="662" fill="#9fc7d8">Stato</text>
+<text x="145" y="698" fill="#62f0aa">0.4 s</text><text x="360" y="698" fill="#62f0aa">101.2 ms</text><text x="610" y="698" fill="#62f0aa">1000.4 ms</text><text x="865" y="698" fill="#62f0aa">0</text><text x="1095" y="698" fill="#62f0aa">OK</text>
 </g>
 </svg>
