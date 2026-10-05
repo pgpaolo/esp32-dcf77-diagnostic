@@ -76,7 +76,18 @@ Il firmware misura direttamente gli edge dell'uscita digitale del ricevitore:
 5. riconosce il marker minuto quando l'intervallo è vicino a 2 s;
 6. raccoglie 59 bit;
 7. verifica struttura, BCD, parità P1/P2/P3 e plausibilità della data/ora;
-8. solo un frame valido sincronizza l'orologio locale.
+8. aggiorna la griglia grafica dei 59 bit con confidenza individuale.
+
+### Due modalità di decodifica
+
+Dal portale web si può scegliere tra:
+
+- **DIRETTA / strict**: usa finestre temporali strette, richiede tutti i 59 bit validi e sincronizza l'orologio dopo un singolo frame completo con P1/P2/P3 corrette;
+- **ACCUMULO / radio clock**: usa una classificazione morbida 100/200 ms con confidenza per ogni bit, tollera alcuni bit incerti e decodifica i campi BCD per punteggio. Un minuto plausibile diventa un candidato; l'orologio viene sincronizzato solo dopo **due minuti consecutivi coerenti** (+60 s), come strategia tipica degli orologi radiocontrollati.
+
+La modalità ACCUMULO è quella predefinita. La scelta effettuata dal portale viene salvata in EEPROM e resta attiva dopo il riavvio.
+
+> L'accumulo non somma ciecamente lo stesso bit tra minuti diversi, perché minuti e ore cambiano. Accumula invece confidenza del frame, coerenza dei campi e continuità temporale tra minuti consecutivi.
 
 ## Console web
 
@@ -94,12 +105,15 @@ con portale su `http://192.168.4.1`.
 
 La console mostra:
 
+- selettore **DIRETTA / ACCUMULO**;
 - ora e data sincronizzate;
 - stato SEARCH/SYNC;
 - qualità del segnale;
 - posizione del frame;
-- ultimo impulso e periodo;
-- marker minuto;
+- griglia grafica dei **59 bit DCF77**, con valore e confidenza;
+- colori distinti per servizio, zona/controllo, minuti, ore e data;
+- stato dell'accumulo: minuti candidati coerenti, confidenza dei campi, bit incerti e bit recuperati;
+- ultimo impulso, periodo e marker minuto;
 - frame validi/invalidi;
 - errori di parità e timing;
 - tabella degli impulsi recenti;
