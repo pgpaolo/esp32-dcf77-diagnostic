@@ -80,6 +80,12 @@ Il firmware misura direttamente gli edge dell'uscita digitale del ricevitore:
 
 ## Console web
 
+La console web è stata mantenuta volutamente semplice: deve mostrare immediatamente se il ricevitore sta producendo impulsi DCF77 plausibili e se il frame è sincronizzato.
+
+![Anteprima console DCF77](docs/console-preview.svg)
+
+Per una descrizione completa dei campi vedere [docs/CONSOLE.md](docs/CONSOLE.md).
+
 All'avvio resta disponibile l'AP:
 
 `DCF77-HW364A-xxxxxx`
