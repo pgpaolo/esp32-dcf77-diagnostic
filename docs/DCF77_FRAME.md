@@ -138,3 +138,93 @@ Un frame viene accettato solo se:
 - giorno settimana 1..7.
 
 Un frame incompleto o incoerente non aggiorna l'orologio.
+
+
+## Esempio pratico di codifica
+
+Supponiamo che DCF77 debba trasmettere le **14:37**.
+
+### Minuti = 37
+
+I secondi 21..27 contengono:
+
+| Peso | Bit |
+|---:|---:|
+| 1 | 1 |
+| 2 | 1 |
+| 4 | 1 |
+| 8 | 0 |
+| 10 | 1 |
+| 20 | 1 |
+| 40 | 0 |
+
+Somma:
+
+```text
+1 + 2 + 4 + 10 + 20 = 37
+```
+
+Il bit P1 al secondo 28 viene scelto per rendere pari il numero complessivo di bit a 1 nel gruppo 21..28.
+
+### Ore = 14
+
+I secondi 29..34 usano i pesi:
+
+```text
+1, 2, 4, 8, 10, 20
+```
+
+Per 14 vengono attivati 4 e 10:
+
+```text
+4 + 10 = 14
+```
+
+Il secondo 35 contiene P2.
+
+## Diagramma temporale
+
+```text
+secondo n, bit 0
+|<---- 100 ms ---->|<-------------------- resto del secondo -------------------->|
+████████████████████______________________________________________________________
+
+secondo n, bit 1
+|<--------- 200 ms --------->|<--------------- resto del secondo --------------->|
+████████████████████████████████████████__________________________________________
+
+secondo 59
+|<-------------------------- nessun impulso AM --------------------------------->|
+__________________________________________________________________________________
+
+secondo 0 del minuto successivo
+████████████████████______________________________________________________________
+^
+l'intervallo tra il fronte del secondo 58 e questo fronte è circa 2 secondi
+```
+
+## Perché il marker minuto funziona
+
+Il secondo 59 non trasmette il normale abbassamento di ampiezza. Il ricevitore digitale non vede quindi un fronte valido in quella posizione. Il firmware misura il tempo tra due fronti iniziali consecutivi:
+
+```text
+secondo normale : circa 1000 ms
+passaggio 58 -> 0: circa 2000 ms
+```
+
+Il secondo valore viene interpretato come marker minuto.
+
+## Controlli di coerenza eseguiti dal firmware
+
+Oltre alle parità, il decoder verifica:
+
+- bit 20 = 1;
+- Z1 e Z2 complementari;
+- minuti <= 59;
+- ore <= 23;
+- mese 1..12;
+- giorno compatibile con mese e anno;
+- giorno della settimana 1..7;
+- frame completo di 59 bit.
+
+In assenza di queste condizioni il frame viene contato come non valido e non aggiorna l'orologio.
