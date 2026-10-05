@@ -3,555 +3,169 @@
 #include <math.h>
 #include <string.h>
 
-DCF77Decoder::DCF77Decoder() {
-    reset();
-}
+DCF77Decoder::DCF77Decoder() { reset(); }
 
 void DCF77Decoder::reset() {
-    resetMsf();
     _stats = DecoderStats{};
     _decoded = DCFDateTime{};
+    _clockBase = DCFDateTime{};
+    _clockBaseValid = false;
+    _clockBaseMs = 0;
     _frameCount = 0;
     _lastFrameCount = 0;
-    _qualityPos = _qualityCount = 0;
+    _traceHead = _traceCount = 0;
     _jitterPos = _jitterCount = 0;
-    _zeroCount = _oneCount = _periodCount = 0;
-    _pulseTraceHead = 0;
-    _pulseTraceCount = 0;
-    memset(_pulseTrace, 0, sizeof(_pulseTrace));
-    _clockBase = DCFDateTime{};
-    _clockBaseMs = 0;
-    _clockBaseValid = false;
-    _candidateTime = DCFDateTime{};
-    _candidateValid = false;
-    _candidateStreak = 0;
-    _candidateMisses = 0;
-
+    _qualityPos = _qualityCount = 0;
     memset(_frame, -1, sizeof(_frame));
-    memset(_frameConfidence, 0, sizeof(_frameConfidence));
     memset(_lastFrame, -1, sizeof(_lastFrame));
+    memset(_trace, 0, sizeof(_trace));
+    memset(_jitter, 0, sizeof(_jitter));
     memset(_qualityHistory, 0, sizeof(_qualityHistory));
-    memset(_jitterHistory, 0, sizeof(_jitterHistory));
 }
 
-void DCF77Decoder::setSignalMode(SignalMode mode) {
-    if (_mode == mode) return;
-    _mode = mode;
-    reset();
-}
-
-int DCF77Decoder::classifyPulse(uint32_t widthUs) const {
+int DCF77Decoder::classify(uint32_t widthUs) const {
     if (widthUs >= DCF_ZERO_MIN_US && widthUs <= DCF_ZERO_MAX_US) return 0;
     if (widthUs >= DCF_ONE_MIN_US && widthUs <= DCF_ONE_MAX_US) return 1;
     return -1;
 }
 
-int DCF77Decoder::softClassifyPulse(uint32_t widthUs, uint8_t &confidence) const {
-    confidence = 0;
-    // Deliberately wider than the strict monitor windows. The integrative
-    // decoder keeps uncertain information instead of throwing the whole
-    // second away. Nearest nominal DCF77 width wins.
-    if (widthUs < 40000UL || widthUs > 280000UL) return -1;
-
-    const uint32_t d0 = widthUs > 100000UL ? widthUs - 100000UL : 100000UL - widthUs;
-    const uint32_t d1 = widthUs > 200000UL ? widthUs - 200000UL : 200000UL - widthUs;
-    const int bit = d0 <= d1 ? 0 : 1;
-    const uint32_t err = d0 <= d1 ? d0 : d1;
-
-    if (err > 80000UL) return -1;
-    confidence = static_cast<uint8_t>(100UL - (err * 100UL) / 80000UL);
-    if (confidence < 20) return -1;
-    return bit;
-}
-
-void DCF77Decoder::recordPulseTrace(const RawPulse &pulse, int bit, bool valid,
-                                    bool secondTimingOk, bool minuteGap) {
-    PulseTrace &t = _pulseTrace[_pulseTraceHead];
+void DCF77Decoder::recordTrace(const RawPulse &pulse, int bit, bool valid, bool minuteGap) {
+    PulseTrace &t = _trace[_traceHead];
     t.capturedMs = millis();
     t.widthUs = pulse.widthUs;
     t.periodUs = pulse.periodUs;
     t.bit = static_cast<int8_t>(bit);
     t.valid = valid;
-    t.secondTimingOk = secondTimingOk;
     t.minuteGap = minuteGap;
-    t.markerCandidate = false;
-    t.sampled = false;
-    t.confidence = valid ? 100 : 0;
-    t.secondIndex = 255;
-    t.framePos = _stats.frameBitCount;
-
-    _pulseTraceHead = (_pulseTraceHead + 1) % PULSE_TRACE_SIZE;
-    if (_pulseTraceCount < PULSE_TRACE_SIZE) _pulseTraceCount++;
-}
-
-void DCF77Decoder::recordSampledTrace(uint8_t secondIndex, int8_t bit,
-                                      uint8_t confidence, bool minuteMarker,
-                                      bool markerCandidate) {
-    PulseTrace &t = _pulseTrace[_pulseTraceHead];
-    t.capturedMs = millis();
-    t.widthUs = bit == 0 ? 100000UL : (bit == 1 ? 200000UL : 0UL);
-    t.periodUs = minuteMarker ? 2000000UL : 1000000UL;
-    t.bit = bit;
-    t.valid = bit == 0 || bit == 1;
-    t.secondTimingOk = true;
-    t.minuteGap = minuteMarker;
-    t.markerCandidate = markerCandidate;
-    t.sampled = true;
-    t.confidence = confidence;
-    t.secondIndex = secondIndex;
-    t.framePos = secondIndex < 59 ? secondIndex : 0;
-
-    _pulseTraceHead = (_pulseTraceHead + 1) % PULSE_TRACE_SIZE;
-    if (_pulseTraceCount < PULSE_TRACE_SIZE) _pulseTraceCount++;
+    _traceHead = (_traceHead + 1U) % TRACE_SIZE;
+    if (_traceCount < TRACE_SIZE) ++_traceCount;
 }
 
 bool DCF77Decoder::recentPulse(uint8_t newestIndex, PulseTrace &out) const {
-    if (newestIndex >= _pulseTraceCount) return false;
-    int index = static_cast<int>(_pulseTraceHead) - 1 - newestIndex;
-    while (index < 0) index += PULSE_TRACE_SIZE;
-    out = _pulseTrace[index];
+    if (newestIndex >= _traceCount) return false;
+    int i = static_cast<int>(_traceHead) - 1 - newestIndex;
+    while (i < 0) i += TRACE_SIZE;
+    out = _trace[i];
     return true;
+}
+
+void DCF77Decoder::updateQuality(bool validBit, bool validTiming) {
+    const uint8_t q = (validBit && validTiming) ? 100 : (validBit ? 40 : 0);
+    _qualityHistory[_qualityPos] = q;
+    _qualityPos = (_qualityPos + 1U) % 60U;
+    if (_qualityCount < 60) ++_qualityCount;
+
+    uint32_t sum = 0;
+    for (uint8_t i = 0; i < _qualityCount; ++i) sum += _qualityHistory[i];
+    _stats.quality = _qualityCount ? static_cast<uint8_t>(sum / _qualityCount) : 0;
+}
+
+void DCF77Decoder::updateJitter(int32_t jitterUs) {
+    _jitter[_jitterPos] = jitterUs;
+    _jitterPos = (_jitterPos + 1U) % 60U;
+    if (_jitterCount < 60) ++_jitterCount;
+
+    double sum = 0;
+    for (uint8_t i = 0; i < _jitterCount; ++i) {
+        const double v = _jitter[i];
+        sum += v * v;
+    }
+    _stats.jitterRmsUs = _jitterCount ? sqrt(sum / _jitterCount) : 0.0f;
 }
 
 void DCF77Decoder::processPulse(const RawPulse &pulse) {
     _stats.totalPulses++;
     _stats.lastPulseWidthUs = pulse.widthUs;
     _stats.lastPeriodUs = pulse.periodUs;
-    _stats.lastPpsOffsetUs = pulse.ppsOffsetUs;
 
-    // On 60 kHz the receiver can be listening to MSF, WWVB or JJY60.
-    // Their modulation is not DCF77-compatible, so only perform neutral
-    // pulse/timing diagnostics here.
-    if (_mode == SignalMode::RAW_60KHZ) {
-        const bool valid = pulse.widthUs >= RAW60_PULSE_MIN_US &&
-                           pulse.widthUs <= RAW60_PULSE_MAX_US;
-        _stats.lastBit = -1;
-        _stats.lastPulseValid = valid;
-        if (valid) _stats.validPulses++;
-        else {
-            _stats.invalidPulses++;
-            if (pulse.widthUs < 30000) _stats.glitchCount++;
-        }
-
-        bool normalSecond = false;
-        if (pulse.periodUs >= DCF_SECOND_MIN_US && pulse.periodUs <= DCF_SECOND_MAX_US) {
-            normalSecond = true;
-            const int32_t jitter = static_cast<int32_t>(pulse.periodUs) - 1000000;
-            _stats.lastJitterUs = jitter;
-            updateJitter(jitter);
-            _periodCount++;
-            _stats.avgPeriodUs += (static_cast<float>(pulse.periodUs) - _stats.avgPeriodUs) / _periodCount;
-        } else if (pulse.periodUs != 0) {
-            _stats.timingErrors++;
-        }
-
-        updateQuality(pulse, -1, valid, normalSecond);
-        recordPulseTrace(pulse, -1, valid, normalSecond, false);
-        return;
-    }
-
-    const bool candidateMinuteGap = pulse.periodUs >= DCF_MINUTE_GAP_MIN_US &&
-                                    pulse.periodUs <= DCF_MINUTE_GAP_MAX_US;
-    const bool minuteGap = candidateMinuteGap &&
-                           (!_stats.minuteSynced || _frameCount >= 55);
+    const bool minuteGap = pulse.periodUs >= DCF_MINUTE_GAP_MIN_US &&
+                           pulse.periodUs <= DCF_MINUTE_GAP_MAX_US;
+    const bool normalSecond = pulse.periodUs == 0 ||
+                              (pulse.periodUs >= DCF_SECOND_MIN_US &&
+                               pulse.periodUs <= DCF_SECOND_MAX_US);
 
     if (minuteGap) {
         _stats.minuteMarkers++;
-        if (_stats.minuteSynced && _frameCount > 0) {
-            finalizeFrame(pulse.startUs);
-        }
+        if (_stats.minuteSynced && _frameCount > 0) finalizeFrame(pulse.startUs);
+
         _stats.minuteSynced = true;
         _frameCount = 0;
         _stats.frameBitCount = 0;
         memset(_frame, -1, sizeof(_frame));
-        memset(_frameConfidence, 0, sizeof(_frameConfidence));
-    } else if (pulse.periodUs > DCF_SECOND_MAX_US && pulse.periodUs != 0) {
-        // A single badly timed edge must not destroy an acquired frame.
-        // Noise-resilient DCF77 decoders keep phase/state through isolated
-        // disturbances and only abandon it after a clearly impossible gap.
+    } else if (pulse.periodUs != 0 && !normalSecond) {
         _stats.timingErrors++;
-        if (_stats.minuteSynced && pulse.periodUs > 3000000UL) {
+        // A very long gap means synchronization was genuinely lost.
+        if (pulse.periodUs > 3000000UL) {
             _stats.minuteSynced = false;
             _frameCount = 0;
             _stats.frameBitCount = 0;
             memset(_frame, -1, sizeof(_frame));
-            memset(_frameConfidence, 0, sizeof(_frameConfidence));
         }
     }
 
-    const int bit = classifyPulse(pulse.widthUs);
+    const int bit = classify(pulse.widthUs);
     const bool valid = bit >= 0;
-    _stats.lastBit = bit;
-    _stats.lastPulseValid = valid;
+    _stats.lastBit = static_cast<int8_t>(bit);
 
-    if (valid) {
-        _stats.validPulses++;
-        if (bit == 0) {
-            _zeroCount++;
-            _stats.avgZeroUs += (static_cast<float>(pulse.widthUs) - _stats.avgZeroUs) / _zeroCount;
-        } else {
-            _oneCount++;
-            _stats.avgOneUs += (static_cast<float>(pulse.widthUs) - _stats.avgOneUs) / _oneCount;
-        }
-    } else {
+    if (valid) _stats.validPulses++;
+    else {
         _stats.invalidPulses++;
-        if (pulse.widthUs < 30000) _stats.glitchCount++;
+        if (pulse.widthUs < 30000UL) _stats.glitchCount++;
     }
 
-    bool normalSecond = false;
-    if (pulse.periodUs >= DCF_SECOND_MIN_US && pulse.periodUs <= DCF_SECOND_MAX_US) {
-        normalSecond = true;
-        const int32_t jitter = static_cast<int32_t>(pulse.periodUs) - 1000000;
-        _stats.lastJitterUs = jitter;
-        updateJitter(jitter);
-        _periodCount++;
-        _stats.avgPeriodUs += (static_cast<float>(pulse.periodUs) - _stats.avgPeriodUs) / _periodCount;
-    } else if (minuteGap) {
-        _stats.lastJitterUs = static_cast<int32_t>(pulse.periodUs) - 2000000;
+    const bool timingOk = normalSecond || minuteGap;
+    if (pulse.periodUs != 0) {
+        const uint32_t expected = minuteGap ? 2000000UL : 1000000UL;
+        _stats.lastJitterUs = static_cast<int32_t>(pulse.periodUs) - static_cast<int32_t>(expected);
+        if (timingOk) updateJitter(_stats.lastJitterUs);
     }
+    updateQuality(valid, timingOk);
 
-    updateQuality(pulse, bit, valid, normalSecond || minuteGap);
-
-    // Advance the DCF frame only on a real one-second slot (or the first
-    // pulse after the minute gap). Asynchronous noise remains visible in the
-    // raw pulse monitor but must not shift the 59-bit frame.
-    const bool frameSlot = normalSecond || minuteGap;
-    if (_stats.minuteSynced && frameSlot) {
-        if (_frameCount < 59) {
-            uint8_t softConfidence = 0;
-            const int softBit = softClassifyPulse(pulse.widthUs, softConfidence);
-            _frame[_frameCount] = static_cast<int8_t>(softBit);
-            _frameConfidence[_frameCount] = softConfidence;
-            if (softBit < 0 || softConfidence < 45) _stats.uncertainBits++;
-            _frameCount++;
-        }
+    // The pulse following the missing second-59 pulse is second 0.
+    if (_stats.minuteSynced && timingOk && _frameCount < 59) {
+        _frame[_frameCount++] = static_cast<int8_t>(bit);
         _stats.frameBitCount = _frameCount;
     }
 
-    recordPulseTrace(pulse, bit, valid, normalSecond, minuteGap);
+    recordTrace(pulse, bit, valid, minuteGap);
 }
 
-void DCF77Decoder::finalizeFrame(uint32_t newMinuteStartUs) {
-    _lastFrameCount = _frameCount > 59 ? 59 : _frameCount;
-    for (uint8_t i = 0; i < 59; ++i) {
-        _lastFrame[i] = (i < _frameCount) ? _frame[i] : -1;
-    }
+void DCF77Decoder::finalizeFrame(uint32_t minuteStartUs) {
+    _lastFrameCount = _frameCount;
+    for (uint8_t i = 0; i < 59; ++i) _lastFrame[i] = i < _frameCount ? _frame[i] : -1;
 
     DCFDateTime dt;
     const bool valid = decodeFrame(dt);
     _stats.lastFrameValid = valid;
 
-    if (valid) {
-        _stats.validFrames++;
-        _stats.lastValidFrameMs = millis();
-
-        // A valid frame is first treated as a candidate. Synchronization is
-        // promoted only when the following decoded minute is coherent.
-        if (_candidateValid) {
-            DCFDateTime expected = _candidateTime;
-            addSeconds(expected, 60);
-            if (sameMinute(expected, dt)) {
-                if (_candidateStreak < 255) _candidateStreak++;
-            } else {
-                _candidateStreak = 1;
-            }
-        } else {
-            _candidateStreak = 1;
-        }
-
-        _candidateTime = dt;
-        _candidateValid = true;
-        _candidateMisses = 0;
-        _stats.candidateMinutes = _candidateStreak;
-
-        if (_candidateStreak >= 2) {
-            _stats.clockLocked = true;
-            _decoded = dt;
-            setClockBase(dt, newMinuteStartUs);
-        }
-
-        const uint16_t base = static_cast<uint16_t>(_candidateStreak) * 35U;
-        const uint16_t q = base + (_stats.recoveredBits == 0 ? 20U : 10U);
-        _stats.acquisitionConfidence = q > 100U ? 100U : static_cast<uint8_t>(q);
-    } else {
+    if (!valid) {
         _stats.invalidFrames++;
-        if (!(_stats.parityMinute && _stats.parityHour && _stats.parityDate)) {
+        if (!(_stats.parityMinute && _stats.parityHour && _stats.parityDate))
             _stats.parityErrors++;
-        }
-
-        if (_candidateValid && _candidateMisses < 255) _candidateMisses++;
-        if (_candidateMisses > 2 && !_stats.clockLocked) {
-            _candidateValid = false;
-            _candidateStreak = 0;
-            _stats.candidateMinutes = 0;
-            _stats.acquisitionConfidence = 0;
-        }
-
-        // Once locked, tolerate several bad minutes and keep the local clock
-        // running. Only declare lock lost after a prolonged absence.
-        if (_stats.lastValidFrameMs != 0 && (millis() - _stats.lastValidFrameMs) > 600000UL) {
-            _stats.clockLocked = false;
-        }
+        return;
     }
+
+    _stats.validFrames++;
+    _stats.lastValidFrameMs = millis();
+    _stats.clockLocked = true;
+    _decoded = dt;
+    setClockBase(dt, minuteStartUs);
 }
 
 bool DCF77Decoder::decodeFrame(DCFDateTime &out) {
-    if (_frameCount < 59) {
-        _stats.parityMinute = _stats.parityHour = _stats.parityDate = false;
-        return false;
-    }
+    _stats.parityMinute = _stats.parityHour = _stats.parityDate = false;
+    if (_frameCount != 59) return false;
 
-    int8_t bits[59];
-    memcpy(bits, _frame, sizeof(bits));
-    uint8_t recovered = 0;
+    for (uint8_t i = 0; i < 59; ++i)
+        if (_frame[i] != 0 && _frame[i] != 1) return false;
 
-    auto repairParityGroup = [&](int first, int parityPos) -> bool {
-        int unknown = -1;
-        int unknownCount = 0;
-        int ones = 0;
-        for (int i = first; i <= parityPos; ++i) {
-            if (bits[i] == 0 || bits[i] == 1) ones += bits[i];
-            else { unknown = i; unknownCount++; }
-        }
-        if (unknownCount == 0) return (ones % 2) == 0;
-        if (unknownCount != 1) return false;
+    if (_frame[20] != 1) return false;
+    if (_frame[17] == _frame[18]) return false;
 
-        // Even parity: choose the missing bit that makes total ones even.
-        bits[unknown] = (ones % 2) ? 1 : 0;
-        recovered++;
-        return true;
-    };
-
-    // DCF77 start-of-time-information marker.
-    if (bits[20] < 0) { bits[20] = 1; recovered++; }
-
-    // CET/CEST flags are complementary. Recover one missing flag if possible.
-    if (bits[17] < 0 && (bits[18] == 0 || bits[18] == 1)) {
-        bits[17] = 1 - bits[18]; recovered++;
-    } else if (bits[18] < 0 && (bits[17] == 0 || bits[17] == 1)) {
-        bits[18] = 1 - bits[17]; recovered++;
-    }
-
-    _stats.parityMinute = repairParityGroup(21, 28);
-    _stats.parityHour   = repairParityGroup(29, 35);
-    _stats.parityDate   = repairParityGroup(36, 58);
-    _stats.recoveredBits = recovered;
-
-    if (bits[20] != 1 || !_stats.parityMinute || !_stats.parityHour || !_stats.parityDate) {
-        return false;
-    }
-
-    static const int minPos[] = {21,22,23,24,25,26,27};
-    static const int minW[]   = { 1, 2, 4, 8,10,20,40};
-    static const int hrPos[]  = {29,30,31,32,33,34};
-    static const int hrW[]    = { 1, 2, 4, 8,10,20};
-    static const int dayPos[] = {36,37,38,39,40,41};
-    static const int dayW[]   = { 1, 2, 4, 8,10,20};
-    static const int wdPos[]  = {42,43,44};
-    static const int wdW[]    = { 1, 2, 4};
-    static const int monPos[] = {45,46,47,48,49};
-    static const int monW[]   = { 1, 2, 4, 8,10};
-    static const int yrPos[]  = {50,51,52,53,54,55,56,57};
-    static const int yrW[]    = { 1, 2, 4, 8,10,20,40,80};
-
-    // Any still-unknown information bit prevents a time candidate.
-    for (int i = 21; i <= 58; ++i) {
-        if (bits[i] != 0 && bits[i] != 1) return false;
-    }
-
-    out.minute = weighted(bits, minPos, minW, 7);
-    out.hour = weighted(bits, hrPos, hrW, 6);
-    out.day = weighted(bits, dayPos, dayW, 6);
-    out.weekday = weighted(bits, wdPos, wdW, 3);
-    out.month = weighted(bits, monPos, monW, 5);
-    out.year = 2000 + weighted(bits, yrPos, yrW, 8);
-    out.second = 0;
-
-    const bool z1 = bits[17] == 1;
-    const bool z2 = bits[18] == 1;
-    if (z1 == z2) return false;
-    out.cest = z1 && !z2;
-    out.dstChangePending = bits[16] == 1;
-    out.leapSecondPending = bits[19] == 1;
-
-    if (out.minute > 59 || out.hour > 23 || out.month < 1 || out.month > 12 ||
-        out.day < 1 || out.day > daysInMonth(out.year, out.month) ||
-        out.weekday < 1 || out.weekday > 7) {
-        return false;
-    }
-
-    out.valid = true;
-    return true;
-}
-
-void DCF77Decoder::updateQuality(const RawPulse &pulse, int bit, bool valid, bool normalSecond) {
-    float pulseScore = 0.0f;
-
-    if (_mode == SignalMode::RAW_60KHZ) {
-        pulseScore = valid ? 1.0f : 0.0f;
-    } else if (valid) {
-        const float ideal = bit == 0 ? 100000.0f : 200000.0f;
-        const float err = fabsf(static_cast<float>(pulse.widthUs) - ideal);
-        pulseScore = 1.0f - fminf(err / 60000.0f, 1.0f);
-    }
-
-    float periodScore = 0.0f;
-    if (pulse.periodUs == 0) {
-        periodScore = 0.5f;
-    } else if (normalSecond) {
-        float ideal = 1000000.0f;
-        if (_mode == SignalMode::DCF77 && pulse.periodUs >= DCF_MINUTE_GAP_MIN_US) ideal = 2000000.0f;
-        const float err = fabsf(static_cast<float>(pulse.periodUs) - ideal);
-        periodScore = 1.0f - fminf(err / 180000.0f, 1.0f);
-    }
-
-    float score = (_mode == SignalMode::RAW_60KHZ)
-                    ? (0.40f * pulseScore + 0.60f * periodScore)
-                    : (0.70f * pulseScore + 0.30f * periodScore);
-
-    _qualityHistory[_qualityPos] = score;
-    _qualityPos = (_qualityPos + 1) % 60;
-    if (_qualityCount < 60) _qualityCount++;
-
-    float sum = 0.0f;
-    for (uint8_t i = 0; i < _qualityCount; ++i) sum += _qualityHistory[i];
-    float q = _qualityCount ? (sum / _qualityCount) * 100.0f : 0.0f;
-
-    if (_mode == SignalMode::DCF77) {
-        if (_stats.lastFrameValid) q = fminf(100.0f, q + 5.0f);
-        if (_stats.invalidFrames > 0 && !_stats.lastFrameValid) q = fmaxf(0.0f, q - 8.0f);
-    }
-    _stats.quality = static_cast<uint8_t>(lroundf(fmaxf(0.0f, fminf(q, 100.0f))));
-}
-
-void DCF77Decoder::updateJitter(int32_t jitterUs) {
-    _jitterHistory[_jitterPos] = jitterUs;
-    _jitterPos = (_jitterPos + 1) % 60;
-    if (_jitterCount < 60) _jitterCount++;
-
-    double sumSq = 0.0;
-    for (uint8_t i = 0; i < _jitterCount; ++i) {
-        const double j = static_cast<double>(_jitterHistory[i]);
-        sumSq += j * j;
-    }
-    _stats.jitterRmsUs = _jitterCount ? sqrt(sumSq / _jitterCount) : 0.0f;
-}
-
-void DCF77Decoder::setClockBase(const DCFDateTime &dt, uint32_t edgeStartUs) {
-    _clockBase = dt;
-    const uint32_t ageUs = micros() - edgeStartUs;
-    _clockBaseMs = millis() - ageUs / 1000UL;
-    _clockBaseValid = true;
-}
-
-bool DCF77Decoder::getRunningClock(DCFDateTime &out) const {
-    if (!_clockBaseValid) return false;
-    out = _clockBase;
-    const uint32_t elapsedSeconds = (millis() - _clockBaseMs) / 1000UL;
-    addSeconds(out, elapsedSeconds);
-    out.valid = true;
-    return true;
-}
-
-bool DCF77Decoder::evenParity(const int8_t *bits, int first, int lastInclusive) {
-    int ones = 0;
-    for (int i = first; i <= lastInclusive; ++i) {
-        if (bits[i] != 0 && bits[i] != 1) return false;
-        ones += bits[i];
-    }
-    return (ones % 2) == 0;
-}
-
-int DCF77Decoder::weighted(const int8_t *bits, const int *positions, const int *weights, size_t n) {
-    int value = 0;
-    for (size_t i = 0; i < n; ++i) {
-        if (bits[positions[i]] == 1) value += weights[i];
-    }
-    return value;
-}
-
-bool DCF77Decoder::isLeapYear(int year) {
-    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-}
-
-int DCF77Decoder::daysInMonth(int year, int month) {
-    static const int days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
-    if (month == 2 && isLeapYear(year)) return 29;
-    return days[month - 1];
-}
-
-void DCF77Decoder::addSeconds(DCFDateTime &dt, uint32_t seconds) {
-    uint32_t total = static_cast<uint32_t>(dt.hour) * 3600UL +
-                     static_cast<uint32_t>(dt.minute) * 60UL +
-                     static_cast<uint32_t>(dt.second) + seconds;
-
-    uint32_t extraDays = total / 86400UL;
-    total %= 86400UL;
-    dt.hour = total / 3600UL;
-    total %= 3600UL;
-    dt.minute = total / 60UL;
-    dt.second = total % 60UL;
-
-    while (extraDays--) {
-        dt.day++;
-        dt.weekday++;
-        if (dt.weekday > 7) dt.weekday = 1;
-        if (dt.day > daysInMonth(dt.year, dt.month)) {
-            dt.day = 1;
-            dt.month++;
-            if (dt.month > 12) {
-                dt.month = 1;
-                dt.year++;
-            }
-        }
-    }
-}
-
-const char *DCF77Decoder::acquisitionState() const {
-    if (_stats.clockLocked) return "SYNCED";
-    if (_candidateValid && _candidateStreak > 0) return "CONFIRM";
-    if (_stats.minuteSynced) return "ACQUIRE";
-    return "SEARCH";
-}
-
-bool DCF77Decoder::sameMinute(const DCFDateTime &a, const DCFDateTime &b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day &&
-           a.hour == b.hour && a.minute == b.minute;
-}
-
-
-int DCF77Decoder::scoreExpectedBit(int position, int expected) const {
-    if (position < 0 || position >= 59) return 0;
-    const int8_t observed = _frame[position];
-    if (observed != 0 && observed != 1) return 0;
-    const int weight = _frameConfidence[position] > 0 ? _frameConfidence[position] : 25;
-    return observed == expected ? weight : -weight;
-}
-
-int DCF77Decoder::scoreFieldValue(const int *positions, const int *weights, size_t n,
-                                  int value, int parityPos) const {
-    int score = 0;
-    int ones = 0;
-    for (size_t i = 0; i < n; ++i) {
-        const bool expected = (value / weights[i]) % 10 >= 1 &&
-                              ((weights[i] < 10)
-                                  ? ((value % 10) & weights[i]) != 0
-                                  : (((value / 10) & (weights[i] / 10)) != 0));
-        const int bit = expected ? 1 : 0;
-        ones += bit;
-        score += scoreExpectedBit(positions[i], bit);
-    }
-    if (parityPos >= 0) score += scoreExpectedBit(parityPos, ones & 1);
-    return score;
-}
-
-bool DCF77Decoder::decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidence) {
-    confidence = 0;
-    _stats.recoveredBits = 0;
     _stats.parityMinute = evenParity(_frame, 21, 28);
-    _stats.parityHour = evenParity(_frame, 29, 35);
-    _stats.parityDate = evenParity(_frame, 36, 58);
-    if (_frameCount < 59) return false;
+    _stats.parityHour   = evenParity(_frame, 29, 35);
+    _stats.parityDate   = evenParity(_frame, 36, 58);
+    if (!_stats.parityMinute || !_stats.parityHour || !_stats.parityDate) return false;
 
     static const int minPos[] = {21,22,23,24,25,26,27};
     static const int minW[]   = {1,2,4,8,10,20,40};
@@ -566,246 +180,79 @@ bool DCF77Decoder::decodeFrameProbabilistic(DCFDateTime &out, uint8_t &confidenc
     static const int yrPos[]  = {50,51,52,53,54,55,56,57};
     static const int yrW[]    = {1,2,4,8,10,20,40,80};
 
-    auto bestValue = [&](const int *pos, const int *weights, size_t n,
-                         int lo, int hi, int parityPos,
-                         int &bestOut, int &marginOut) {
-        int bestScore = -32767, secondScore = -32767, bestVal = lo;
-        for (int v = lo; v <= hi; ++v) {
-            int score = 0;
-            int ones = 0;
-            for (size_t i = 0; i < n; ++i) {
-                int digitBit;
-                if (weights[i] < 10) digitBit = ((v % 10) & weights[i]) ? 1 : 0;
-                else digitBit = (((v / 10) & (weights[i] / 10)) != 0) ? 1 : 0;
-                ones += digitBit;
-                score += scoreExpectedBit(pos[i], digitBit);
-            }
-            if (parityPos >= 0) score += scoreExpectedBit(parityPos, ones & 1);
-
-            if (score > bestScore) {
-                secondScore = bestScore;
-                bestScore = score;
-                bestVal = v;
-            } else if (score > secondScore) {
-                secondScore = score;
-            }
-        }
-        bestOut = bestVal;
-        marginOut = bestScore - secondScore;
-        return bestScore;
-    };
-
-    int minute, hour, day, weekday, month, year2;
-    int mm, hm, dm, wm, mom, ym;
-    const int ms = bestValue(minPos,minW,7,0,59,28,minute,mm);
-    const int hs = bestValue(hrPos,hrW,6,0,23,35,hour,hm);
-    const int ds = bestValue(dayPos,dayW,6,1,31,-1,day,dm);
-    const int ws = bestValue(wdPos,wdW,3,1,7,-1,weekday,wm);
-    const int mos= bestValue(monPos,monW,5,1,12,-1,month,mom);
-    const int ys = bestValue(yrPos,yrW,8,0,99,-1,year2,ym);
-
-    // Date parity couples day/weekday/month/year. Score it after choosing
-    // the strongest candidates for each sub-field.
-    int dateOnes = 0;
-    auto countBits = [&](int v, const int *weights, size_t n) {
-        for (size_t i=0;i<n;++i) {
-            int b = weights[i] < 10 ? (((v%10)&weights[i])!=0)
-                                    : ((((v/10)&(weights[i]/10))!=0));
-            dateOnes += b;
-        }
-    };
-    countBits(day,dayW,6); countBits(weekday,wdW,3);
-    countBits(month,monW,5); countBits(year2,yrW,8);
-    const int dateParityScore = scoreExpectedBit(58, dateOnes & 1);
-
-    // An uncertain bit may be recovered; a clearly contradictory structural
-    // bit or timezone must never be promoted to a valid decoded clock.
-    int structural = scoreExpectedBit(20,1);
-    const int z1 = _frame[17], z2 = _frame[18];
-    const bool haveZ1 = z1 == 0 || z1 == 1;
-    const bool haveZ2 = z2 == 0 || z2 == 1;
-    if (!haveZ1 && !haveZ2) return false;
-    if (haveZ1 && haveZ2 && z1 == z2) return false;
-    const bool cest = haveZ1 ? z1 == 1 : z2 == 0;
-    structural += 40;
-    if ((_frame[0] == 1 && _frameConfidence[0] >= 55) ||
-        (_frame[20] == 0 && _frameConfidence[20] >= 55)) return false;
-
-    const int year = 2000 + year2;
-    if (day > daysInMonth(year, month)) return false;
-
-    // Require each field to have at least some separation from its runner-up.
-    // This permits unknown bits but rejects a completely flat score landscape.
-    if (mm < 8 || hm < 8 || dm < 5 || wm < 5 || mom < 5 || ym < 5) return false;
-
-    // Reconstruct the selected BCD fields including all three parity bits.
-    // Reject a candidate contradicting reliable received bits, rather than
-    // allowing the date-parity penalty to be outweighed by unrelated fields.
-    int8_t expected[59];
-    memset(expected, -1, sizeof(expected));
-    auto encode = [&](const int *pos, const int *weights, size_t n,
-                      int value, int parityPos) {
-        int ones = 0;
-        for (size_t i = 0; i < n; ++i) {
-            const int b = weights[i] < 10 ? (((value % 10) & weights[i]) != 0)
-                : (((value / 10) & (weights[i] / 10)) != 0);
-            expected[pos[i]] = b;
-            ones += b;
-        }
-        if (parityPos >= 0) expected[parityPos] = ones & 1;
-    };
-    encode(minPos,minW,7,minute,28); encode(hrPos,hrW,6,hour,35);
-    encode(dayPos,dayW,6,day,-1); encode(wdPos,wdW,3,weekday,-1);
-    encode(monPos,monW,5,month,-1); encode(yrPos,yrW,8,year2,-1);
-    expected[58] = dateOnes & 1;
-    expected[0] = 0; expected[20] = 1;
-    expected[17] = cest ? 1 : 0; expected[18] = cest ? 0 : 1;
-    uint8_t recovered = 0;
-    for (uint8_t i = 0; i < 59; ++i) {
-        if (expected[i] < 0 || _frame[i] == expected[i]) continue;
-        if ((_frame[i] == 0 || _frame[i] == 1) && _frameConfidence[i] >= 55) return false;
-        ++recovered;
-    }
-    _stats.recoveredBits = recovered;
-    _stats.parityMinute = _stats.parityHour = _stats.parityDate = true;
-
     out = DCFDateTime{};
-    out.minute = minute;
-    out.hour = hour;
-    out.day = day;
-    out.weekday = weekday;
-    out.month = month;
-    out.year = year;
+    out.minute = weighted(_frame,minPos,minW,7);
+    out.hour = weighted(_frame,hrPos,hrW,6);
+    out.day = weighted(_frame,dayPos,dayW,6);
+    out.weekday = weighted(_frame,wdPos,wdW,3);
+    out.month = weighted(_frame,monPos,monW,5);
+    out.year = 2000 + weighted(_frame,yrPos,yrW,8);
     out.second = 0;
-    out.cest = cest;
+    out.cest = _frame[17] == 1;
     out.dstChangePending = _frame[16] == 1;
     out.leapSecondPending = _frame[19] == 1;
-    out.valid = true;
 
-    const int marginSum = mm + hm + dm + wm + mom + ym;
-    int q = marginSum / 4 + (ms+hs+ds+ws+mos+ys+dateParityScore+structural) / 80;
-    if (q < 0) q = 0;
-    if (q > 100) q = 100;
-    confidence = static_cast<uint8_t>(q);
+    if (out.minute > 59 || out.hour > 23 || out.month < 1 || out.month > 12 ||
+        out.weekday < 1 || out.weekday > 7 ||
+        out.day < 1 || out.day > daysInMonth(out.year,out.month)) return false;
+
+    out.valid = true;
     return true;
 }
 
-void DCF77Decoder::processSampledSymbol(uint8_t secondIndex, int8_t bit,
-                                        uint8_t confidence, bool minuteMarker,
-                                        bool markerCandidate, uint32_t slotStartUs) {
-    if (_mode != SignalMode::DCF77) return;
-    _stats.sampledSymbols++;
-    _stats.totalPulses++;
-    // Sampled quality represents symbol-pattern confidence, not RF strength.
-    _qualityHistory[_qualityPos] = (bit == 0 || bit == 1 || minuteMarker)
-        ? confidence / 100.0f : 0.0f;
-    _qualityPos = (_qualityPos + 1U) % 60U;
-    if (_qualityCount < 60) ++_qualityCount;
-    float sum = 0.0f;
-    for (uint8_t i = 0; i < _qualityCount; ++i) sum += _qualityHistory[i];
-    _stats.quality = static_cast<uint8_t>(sum * 100.0f / _qualityCount);
+void DCF77Decoder::setClockBase(const DCFDateTime &dt, uint32_t minuteStartUs) {
+    _clockBase = dt;
+    const uint32_t ageUs = micros() - minuteStartUs;
+    _clockBaseMs = millis() - ageUs / 1000UL;
+    _clockBaseValid = true;
+}
 
-    // Keep diagnostics alive even before minute-phase lock.
-    recordSampledTrace(secondIndex, bit, confidence, minuteMarker, markerCandidate);
-    // Count classified symbols also before minute lock; raw OUT activity is
-    // reported separately. Provisional quiet markers are not invalid pulses.
-    if (!minuteMarker && !markerCandidate) {
-        if (bit == 0 || bit == 1) _stats.validPulses++;
-        else _stats.invalidPulses++;
+bool DCF77Decoder::getRunningClock(DCFDateTime &out) const {
+    if (!_clockBaseValid) return false;
+    out = _clockBase;
+    addSeconds(out, (millis() - _clockBaseMs) / 1000UL);
+    out.valid = true;
+    return true;
+}
+
+bool DCF77Decoder::evenParity(const int8_t *bits, int first, int last) {
+    int ones = 0;
+    for (int i = first; i <= last; ++i) {
+        if (bits[i] != 0 && bits[i] != 1) return false;
+        ones += bits[i];
     }
+    return (ones & 1) == 0;
+}
 
-    if (secondIndex > 59) {
-        // Minute phase was lost: do not mix an old partial frame with a new
-        // minute alignment when the statistical minute decoder reacquires.
-        _stats.minuteSynced = false;
-        _frameCount = _stats.frameBitCount = 0;
-        memset(_frame, -1, sizeof(_frame));
-        memset(_frameConfidence, 0, sizeof(_frameConfidence));
-        _stats.lastBit = bit;
-        _stats.lastPulseValid = bit == 0 || bit == 1;
-        _stats.lastPeriodUs = 1000000UL;
-        _stats.lastPulseWidthUs = bit == 0 ? 100000UL : (bit == 1 ? 200000UL : 0UL);
-        return;
-    }
-    _stats.lastPeriodUs = minuteMarker ? 2000000UL : 1000000UL;
-    _stats.lastPulseWidthUs = bit == 0 ? 100000UL : (bit == 1 ? 200000UL : 0UL);
+int DCF77Decoder::weighted(const int8_t *bits, const int *pos, const int *weights, size_t n) {
+    int value = 0;
+    for (size_t i = 0; i < n; ++i) if (bits[pos[i]] == 1) value += weights[i];
+    return value;
+}
 
-    if (secondIndex == 59 || minuteMarker) {
-        if (_stats.minuteSynced && _frameCount > 0) {
-            _lastFrameCount = 59;
-            for (uint8_t i=0;i<59;++i) _lastFrame[i] = _frame[i];
+bool DCF77Decoder::isLeapYear(int year) {
+    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
 
-            DCFDateTime dt;
-            uint8_t fieldQ = 0;
-            const bool valid = decodeFrameProbabilistic(dt, fieldQ);
-            _stats.fieldConfidence = fieldQ;
-            _stats.lastFrameValid = valid;
+int DCF77Decoder::daysInMonth(int year, int month) {
+    static const int d[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    return month == 2 && isLeapYear(year) ? 29 : d[month-1];
+}
 
-            if (valid) {
-                _stats.validFrames++;
-                _stats.lastValidFrameMs = millis();
+void DCF77Decoder::addSeconds(DCFDateTime &dt, uint32_t seconds) {
+    uint32_t total = dt.hour*3600UL + dt.minute*60UL + dt.second + seconds;
+    uint32_t days = total / 86400UL;
+    total %= 86400UL;
+    dt.hour = total / 3600UL;
+    total %= 3600UL;
+    dt.minute = total / 60UL;
+    dt.second = total % 60UL;
 
-                if (_candidateValid) {
-                    DCFDateTime expected = _candidateTime;
-                    addSeconds(expected, 60);
-                    if (sameMinute(expected, dt)) {
-                        if (_candidateStreak < 255) _candidateStreak++;
-                    } else {
-                        _candidateStreak = 1;
-                    }
-                } else {
-                    _candidateStreak = 1;
-                }
-
-                _candidateTime = dt;
-                _candidateValid = true;
-                _candidateMisses = 0;
-                _stats.candidateMinutes = _candidateStreak;
-
-                // Prediction match is deliberately simple: it measures whether
-                // consecutive decoded minutes follow the local-clock model.
-                _stats.predictionMatch = _candidateStreak >= 2 ? 100 : 50;
-
-                if (_candidateStreak >= 2) {
-                    _stats.clockLocked = true;
-                    _decoded = dt;
-                    // Frame data describes the minute after the missing pulse.
-                    // Sampling processes that pulse one hardware window later;
-                    // anchor the clock to its real phase, not HTTP/loop latency.
-                    setClockBase(dt, slotStartUs ? slotStartUs + 1000000UL : micros());
-                }
-                _stats.acquisitionConfidence = fieldQ;
-            } else {
-                _stats.invalidFrames++;
-                if (!(_stats.parityMinute && _stats.parityHour && _stats.parityDate))
-                    ++_stats.parityErrors;
-                if (_candidateMisses < 255) _candidateMisses++;
-                _stats.predictionMatch = 0;
-            }
+    while (days--) {
+        if (++dt.weekday > 7) dt.weekday = 1;
+        if (++dt.day > daysInMonth(dt.year,dt.month)) {
+            dt.day = 1;
+            if (++dt.month > 12) { dt.month = 1; ++dt.year; }
         }
-
-        _stats.minuteMarkers++;
-        _stats.minuteSynced = true;
-        _frameCount = 0;
-        _stats.frameBitCount = 0;
-        memset(_frame,-1,sizeof(_frame));
-        memset(_frameConfidence,0,sizeof(_frameConfidence));
-        return;
-    }
-
-    if (!_stats.minuteSynced) return;
-
-    if (secondIndex < 59) {
-        _frame[secondIndex] = (bit==0 || bit==1) ? bit : -1;
-        _frameConfidence[secondIndex] = confidence;
-        if (bit < 0 || confidence < 45) _stats.uncertainBits++;
-
-        // frameBitCount is now the furthest known position + 1, not a count
-        // of received edges.
-        const uint8_t pos = secondIndex + 1;
-        if (pos > _frameCount) _frameCount = pos;
-        _stats.frameBitCount = _frameCount;
-        _stats.lastBit = bit;
-        _stats.lastPulseValid = bit == 0 || bit == 1;
     }
 }
