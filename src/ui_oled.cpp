@@ -24,12 +24,14 @@ void AnalyzerUI::draw(const DCF77Decoder &decoder) {
     const auto &s = decoder.stats();
     DCFDateTime dt;
     const bool clock = decoder.getRunningClock(dt);
+    const bool accum = decoder.decodeMode() == DecodeMode::ACCUMULATE;
 
     _oled.clearDisplay();
     _oled.setTextColor(SSD1306_WHITE);
     _oled.setTextSize(1);
     _oled.setCursor(0,0);
-    _oled.printf("DCF77 %s Q:%u%% %u/3\n", s.minuteSynced?"SYNC":"SEARCH",s.quality,_page+1);
+    _oled.printf("DCF77 %c %s Q:%u %u/3\n",
+                 accum?'A':'D', s.minuteSynced?"SYNC":"SEARCH",s.quality,_page+1);
 
     if (_page == 0) {
         _oled.setTextSize(2);
@@ -37,22 +39,30 @@ void AnalyzerUI::draw(const DCF77Decoder &decoder) {
         else _oled.println("--:--:--");
         _oled.setTextSize(1);
         if (clock) _oled.printf("%02d/%02d/%04d %s\n",dt.day,dt.month,dt.year,dt.cest?"CEST":"CET");
-        else _oled.println("Attesa frame valido");
-        _oled.printf("Frame OK:%lu KO:%lu\n",(unsigned long)s.validFrames,(unsigned long)s.invalidFrames);
+        else _oled.println("Attesa sincronismo");
+        if (accum) _oled.printf("Cand:%u Campo:%u%%\n",s.candidateMinutes,s.fieldConfidence);
+        else _oled.println("Modo DIRETTA strict");
         _oled.println(portalAddress());
     } else if (_page == 1) {
         _oled.printf("Impulso: %.1f ms\n",s.lastPulseWidthUs/1000.0f);
         _oled.printf("Periodo: %.1f ms\n",s.lastPeriodUs/1000.0f);
-        _oled.printf("Bit: %d  pos:%u\n",s.lastBit,s.frameBitCount);
-        _oled.printf("Jitter: %.1f ms\n",s.lastJitterUs/1000.0f);
+        _oled.printf("Bit:%d Conf:%u%%\n",s.lastBit,s.lastBitConfidence);
+        _oled.printf("Frame: %u/59\n",s.frameBitCount);
         _oled.printf("Marker: %lu\n",(unsigned long)s.minuteMarkers);
     } else {
-        _oled.printf("Impulsi OK:%lu\n",(unsigned long)s.validPulses);
-        _oled.printf("Impulsi KO:%lu\n",(unsigned long)s.invalidPulses);
-        _oled.printf("Timing KO:%lu\n",(unsigned long)s.timingErrors);
-        _oled.printf("Parity KO:%lu\n",(unsigned long)s.parityErrors);
-        _oled.printf("Glitch:%lu\n",(unsigned long)s.glitchCount);
-        _oled.printf("RMS: %.1f ms\n",s.jitterRmsUs/1000.0f);
+        if (accum) {
+            _oled.printf("ACCUMULO RADIO CLOCK\n");
+            _oled.printf("Cand coerenti:%u\n",s.candidateMinutes);
+            _oled.printf("Campo:%u%% Inc:%u\n",s.fieldConfidence,s.uncertainBits);
+            _oled.printf("Recuperati:%u\n",s.recoveredBits);
+            _oled.printf("Frame OK:%lu KO:%lu\n",(unsigned long)s.validFrames,(unsigned long)s.invalidFrames);
+        } else {
+            _oled.printf("DIRETTA STRICT\n");
+            _oled.printf("Frame OK:%lu\n",(unsigned long)s.validFrames);
+            _oled.printf("Frame KO:%lu\n",(unsigned long)s.invalidFrames);
+            _oled.printf("Parity KO:%lu\n",(unsigned long)s.parityErrors);
+            _oled.printf("Timing KO:%lu\n",(unsigned long)s.timingErrors);
+        }
     }
     _oled.display();
 }
