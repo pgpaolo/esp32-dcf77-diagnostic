@@ -2,6 +2,7 @@
 #include "config.h"
 #include "web_portal.h"
 #include <Wire.h>
+#include <ESP8266WiFi.h>
 
 AnalyzerUI::AnalyzerUI() : _oled(128,64,&Wire,-1) {}
 
