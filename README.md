@@ -117,7 +117,10 @@ La console mostra:
 - frame validi/invalidi;
 - errori di parità e timing;
 - tabella degli impulsi recenti;
-- configurazione Wi-Fi.
+- diagnostica avanzata con uptime, heap, RSSI, jitter RMS, rapporto impulsi validi, glitch, età dell'ultimo frame valido e stato P1/P2/P3;
+- distribuzione degli ultimi impulsi fra bit 0, bit 1 e simboli incerti;
+- configurazione Wi-Fi;
+- scelta persistente della schermata OLED: **AUTO**, **ORA**, **SEGNALE**, **DECODER/ACCUMULO** oppure **DIAGNOSTICA**.
 
 ## Struttura essenziale
 
@@ -128,3 +131,17 @@ La console mostra:
 - `include/config.h`: pin, polarità e finestre temporali.
 
 Vedi anche [docs/HW364A.md](docs/HW364A.md) e [docs/DCF77_FRAME.md](docs/DCF77_FRAME.md).
+
+## Visualizzazione OLED configurabile
+
+Dal portale web è possibile decidere cosa mostrare stabilmente sul display OLED.
+
+| Modalità | Contenuto |
+|---|---|
+| AUTO | rotazione automatica fra le quattro schermate |
+| ORA | ora, data e contatori frame |
+| SEGNALE | impulso, periodo, bit/confidenza e jitter RMS |
+| DECODER | posizione frame e stato accumulo/decodifica |
+| DIAGNOSTICA | percentuale impulsi validi, heap, RSSI, glitch, timing e lock |
+
+La selezione viene salvata in EEPROM insieme alla modalità del decoder e resta attiva dopo il riavvio.
