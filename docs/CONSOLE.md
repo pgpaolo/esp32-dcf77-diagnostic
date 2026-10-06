@@ -110,3 +110,34 @@ Dopo il minuto successivo coerente:
 Candidati coerenti: 2
 Clock: LOCK
 ```
+
+## Diagnostica avanzata
+
+La pagina principale include anche una sezione diagnostica sintetica. Il badge **STATO BUONO / ATTENZIONE / CRITICO** viene calcolato usando sincronizzazione minuto, qualità e percentuale di impulsi validi.
+
+Sono mostrati:
+
+- uptime;
+- memoria heap libera;
+- RSSI Wi-Fi quando connesso in STA;
+- jitter RMS degli intervalli DCF77;
+- percentuale complessiva di impulsi validi;
+- conteggio glitch;
+- età dell'ultimo frame valido;
+- stato del clock lock;
+- stato delle parità P1/P2/P3;
+- distribuzione degli ultimi eventi fra `0`, `1` e `?`.
+
+Questi indicatori permettono di distinguere rapidamente un problema RF/timing da un problema di frame o di parità.
+
+## Configurazione OLED dal web
+
+Il portale consente di salvare in EEPROM una delle seguenti viste:
+
+- **AUTO**: rotazione automatica;
+- **ORA**: ora/data;
+- **SEGNALE**: misure del segnale DCF77;
+- **DECODER**: frame e accumulo;
+- **DIAGNOSTICA**: stato tecnico del ricevitore.
+
+La selezione viene applicata senza ricompilare il firmware.
