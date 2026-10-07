@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#0d1b26"/>
+    <stop offset="1" stop-color="#16384a"/>
+  </linearGradient>
+</defs>
+<rect width="1280" height="640" fill="url(#bg)"/>
+<circle cx="1080" cy="120" r="180" fill="#1f5269" opacity=".35"/>
+<circle cx="1160" cy="520" r="240" fill="#18394a" opacity=".55"/>
+
+<text x="76" y="104" fill="#8fc7e8" font-family="Arial,Helvetica,sans-serif" font-size="24">ESP8266 · HW-364A · 77,5 kHz</text>
+<text x="76" y="190" fill="#ffffff" font-family="Arial,Helvetica,sans-serif" font-size="72" font-weight="700">DCF77 Radio Clock</text>
+<text x="76" y="244" fill="#c8e2ee" font-family="Arial,Helvetica,sans-serif" font-size="28">Direct + accumulation decoding · OLED · Web diagnostics</text>
+
+<rect x="76" y="310" width="590" height="218" rx="20" fill="#193346" stroke="#31566b"/>
+<text x="112" y="354" fill="#8fc7e8" font-family="Arial" font-size="18">LIVE DECODER</text>
+<text x="112" y="414" fill="#62f0aa" font-family="Arial" font-size="46" font-weight="700">18:42:31</text>
+<text x="112" y="452" fill="#eef6fb" font-family="Arial" font-size="20">SYNC · Quality 96% · Frame 37/59</text>
+<text x="112" y="490" fill="#9fc7d8" font-family="Arial" font-size="18">100 ms = 0 · 200 ms = 1 · minute marker</text>
+
+<rect x="720" y="310" width="470" height="218" rx="20" fill="#193346" stroke="#31566b"/>
+<text x="754" y="354" fill="#8fc7e8" font-family="Arial" font-size="18">ACCUMULATION MODE</text>
+<text x="754" y="399" fill="#eef6fb" font-family="Arial" font-size="22">BCD confidence</text>
+<text x="1118" y="399" text-anchor="end" fill="#62f0aa" font-family="Arial" font-size="22" font-weight="700">84%</text>
+<text x="754" y="438" fill="#eef6fb" font-family="Arial" font-size="22">Coherent minutes</text>
+<text x="1118" y="438" text-anchor="end" fill="#62f0aa" font-family="Arial" font-size="22" font-weight="700">2</text>
+<text x="754" y="477" fill="#eef6fb" font-family="Arial" font-size="22">P1 / P2 / P3</text>
+<text x="1118" y="477" text-anchor="end" fill="#62f0aa" font-family="Arial" font-size="22" font-weight="700">OK</text>
+
+<text x="76" y="592" fill="#7fa8bb" font-family="Arial" font-size="19">github.com/pgpaolo/esp32-dcf77-diagnostic</text>
+</svg>
