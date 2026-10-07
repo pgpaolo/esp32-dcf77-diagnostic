@@ -55,6 +55,7 @@ pio run -e hw364a
 | Funzione | HW-364A |
 |---|---:|
 | DATA ricevitore DCF77 | D7 / GPIO13 |
+| PON / enable ricevitore | D1 / GPIO5 |
 | OLED SDA | D5 / GPIO14 |
 | OLED SCL | D6 / GPIO12 |
 | Pulsante pagina | FLASH / GPIO0 |
@@ -63,6 +64,20 @@ pio run -e hw364a
 La configurazione predefinita considera DATA **active-low con pull-up interno**. Se il modulo acquistato fornisce un'uscita attiva alta, impostare `DCF77_ACTIVE_LOW=0` in `platformio.ini`.
 
 > Verificare sempre tensione di alimentazione e pinout del modulo utilizzato: i ricevitori DCF77 commerciali non hanno tutti la stessa disposizione dei pin.
+
+### Controllo hardware PON
+
+Il pin `PON` del ricevitore è gestito separatamente dalla modalità software **ACCUMULO**.
+
+Configurazione predefinita:
+
+```text
+PON -> D1 / GPIO5
+LOW = ricevitore attivo
+HIGH = ricevitore disabilitato
+```
+
+Dal portale web sono disponibili **ON**, **OFF** e **Restart 3 s**. Il restart porta PON nello stato OFF per 3 secondi e poi riattiva il modulo, azzerando contestualmente lo stato del decoder.
 
 ## Come viene codificato DCF77
 
