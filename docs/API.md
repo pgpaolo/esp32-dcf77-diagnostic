@@ -134,3 +134,29 @@ L'AP non implementa autenticazione applicativa. Se il dispositivo viene usato in
 - proteggere l'AP;
 - limitare l'accesso di rete;
 - non esporre il portale direttamente su Internet.
+
+
+## POST /api/receiver/power
+
+Controlla il pin hardware PON del ricevitore.
+
+Parametri form-urlencoded:
+
+```text
+action=on
+action=off
+action=restart
+```
+
+Comportamento:
+
+- `on`: abilita il ricevitore;
+- `off`: disabilita il ricevitore;
+- `restart`: PON OFF per 3 secondi, reset decoder, quindi PON ON.
+
+`GET /api/status` espone anche:
+
+| Campo | Descrizione |
+|---|---|
+| `receiverEnabled` | stato hardware richiesto del ricevitore |
+| `receiverRestarting` | riavvio PON in corso |
