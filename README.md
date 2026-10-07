@@ -1,5 +1,7 @@
 # DCF77 HW-364A
 
+[![PlatformIO Build](https://github.com/pgpaolo/esp32-dcf77-diagnostic/actions/workflows/platformio.yml/badge.svg)](https://github.com/pgpaolo/esp32-dcf77-diagnostic/actions/workflows/platformio.yml)
+
 Firmware dedicato a **ESP8266 NodeMCU HW-364A + OLED SSD1306 + ricevitore DCF77 77,5 kHz**.
 
 Il progetto è stato riportato a una architettura semplice e specifica per una vera ricevente DCF77: acquisizione diretta degli edge digitali, decodifica 100/200 ms, marker minuto, parità e ora/data.
@@ -145,3 +147,25 @@ Dal portale web è possibile decidere cosa mostrare stabilmente sul display OLED
 | DIAGNOSTICA | percentuale impulsi validi, heap, RSSI, glitch, timing e lock |
 
 La selezione viene salvata in EEPROM insieme alla modalità del decoder e resta attiva dopo il riavvio.
+
+
+## Documentazione
+
+| Documento | Contenuto |
+|---|---|
+| [HW364A](docs/HW364A.md) | cablaggio, polarità, compilazione e collaudo hardware |
+| [Codifica DCF77](docs/DCF77_FRAME.md) | struttura del minuto, BCD, CET/CEST e parità |
+| [Architettura](docs/ARCHITECTURE.md) | flusso dati, ISR, decoder, clock, EEPROM |
+| [Console web](docs/CONSOLE.md) | interfaccia, accumulo, diagnostica e OLED |
+| [API](docs/API.md) | endpoint HTTP e payload principali |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | diagnosi passo-passo e valori attesi |
+
+## CI / controllo build
+
+Ogni push su `main` e ogni pull request eseguono automaticamente:
+
+```bash
+pio run
+```
+
+sul target predefinito `hw364a`. Il badge in testa al README mostra lo stato della build corrente.
