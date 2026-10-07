@@ -24,21 +24,29 @@ sec 59: nessun impulso
 
 Non è necessario che il modulo esponga la portante RF a 77,5 kHz.
 
-## Controllo PON
+## DCF-3850N-800 / SP6007
 
-Per i moduli che espongono `PON`/enable il progetto usa:
+Pin dichiarati dal modulo:
 
 ```text
-D1 / GPIO5 -> PON
+G  = GND
+V  = alimentazione 1.1..3.3 V
+T  = DATA
+P1 = Power On/Off
 ```
 
-Default:
+Per questo modello P1 deve essere mantenuto a **logic LOW**.
 
-```ini
--D DCF77_PON_ACTIVE_LOW=1
+Baseline HW-364A:
+
+```text
+T  -> D7 / GPIO13
+P1 -> D1 / GPIO5, LOW fisso
+G  -> GND
+V  -> 3.3 V
 ```
 
-quindi LOW abilita il ricevitore e HIGH lo disabilita. Se il modulo utilizzato documenta la logica opposta, impostare `DCF77_PON_ACTIVE_LOW=0`.
+Il pin T viene letto come `INPUT` semplice, senza pull-up interno.
 
 ## Requisiti elettrici
 
