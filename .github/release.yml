@@ -1,0 +1,22 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+  categories:
+    - title: Decoder / DCF77
+      labels:
+        - decoder
+        - dcf77
+    - title: Hardware
+      labels:
+        - hardware
+    - title: Web / UI
+      labels:
+        - web
+        - ui
+    - title: Fixes
+      labels:
+        - bug
+    - title: Other Changes
+      labels:
+        - "*"
