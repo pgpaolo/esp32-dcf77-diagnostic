@@ -17,6 +17,7 @@ Il formato segue lo stile di [Keep a Changelog](https://keepachangelog.com/) e i
 - diagnostica avanzata: jitter RMS, rapporto impulsi validi, glitch, heap, RSSI, età ultimo frame valido;
 - selezione persistente della vista OLED;
 - API HTTP locale;
+- controllo hardware PON del ricevitore su D1/GPIO5 con ON, OFF e restart 3 s dal portale web;
 - documentazione tecnica completa;
 - CI GitHub Actions con PlatformIO.
 
