@@ -1,8 +1,24 @@
 # DCF77 HW-364A
 
 [![PlatformIO Build](https://github.com/pgpaolo/esp32-dcf77-diagnostic/actions/workflows/platformio.yml/badge.svg)](https://github.com/pgpaolo/esp32-dcf77-diagnostic/actions/workflows/platformio.yml)
+![License](https://img.shields.io/github/license/pgpaolo/esp32-dcf77-diagnostic)
+![PlatformIO](https://img.shields.io/badge/PlatformIO-HW364A-orange)
+![ESP8266](https://img.shields.io/badge/MCU-ESP8266-blue)
+![DCF77](https://img.shields.io/badge/Signal-DCF77%2077.5%20kHz-2ea44f)
 
 Firmware dedicato a **ESP8266 NodeMCU HW-364A + OLED SSD1306 + ricevitore DCF77 77,5 kHz**.
+
+## Stato del progetto
+
+| Voce | Stato |
+|---|---|
+| Sviluppo | **ACTIVE / STABLE** |
+| Target | HW-364A / ESP8266 |
+| Segnale | DCF77 77,5 kHz |
+| Decoder predefinito | ACCUMULO / radio clock |
+| Environment PlatformIO | `hw364a` |
+| Firmware binario | non ancora pubblicato |
+
 
 Il progetto è stato riportato a una architettura semplice e specifica per una vera ricevente DCF77: acquisizione diretta degli edge digitali, decodifica 100/200 ms, marker minuto, parità e ora/data.
 
@@ -32,6 +48,9 @@ pio run -e hw364a
 ```
 
 ## Collegamenti
+
+![Schema collegamenti](docs/WIRING.svg)
+
 
 | Funzione | HW-364A |
 |---|---:|
@@ -159,6 +178,10 @@ La selezione viene salvata in EEPROM insieme alla modalità del decoder e resta 
 | [Console web](docs/CONSOLE.md) | interfaccia, accumulo, diagnostica e OLED |
 | [API](docs/API.md) | endpoint HTTP e payload principali |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | diagnosi passo-passo e valori attesi |
+| [Hardware compatibile](docs/HARDWARE.md) | requisiti elettrici e checklist ricevitore |
+| [Changelog](CHANGELOG.md) | modifiche e stato pre-release |
+| [Contributing](CONTRIBUTING.md) | build, stile e pull request |
+| [Security](SECURITY.md) | uso sicuro della console locale |
 
 ## CI / controllo build
 
