@@ -3,7 +3,9 @@
 
 // Dedicated HW-364A / ESP8266 build for a proper 77.5 kHz DCF77 receiver.
 // Receiver DATA is connected to D7/GPIO13.
+// Receiver PON (power enable) is connected to D1/GPIO5.
 constexpr uint8_t PIN_DCF77 = 13;
+constexpr uint8_t PIN_DCF77_PON = 5;
 constexpr uint8_t PIN_OLED_SDA = 14;
 constexpr uint8_t PIN_OLED_SCL = 12;
 constexpr uint8_t PIN_BUTTON_PAGE = 0;
@@ -15,9 +17,14 @@ constexpr uint8_t OLED_ADDRESS = 0x3C;
 #ifndef DCF77_USE_INTERNAL_PULLUP
 #define DCF77_USE_INTERNAL_PULLUP 1
 #endif
+#ifndef DCF77_PON_ACTIVE_LOW
+#define DCF77_PON_ACTIVE_LOW 1
+#endif
 
 constexpr bool DCF_ACTIVE_LOW = DCF77_ACTIVE_LOW != 0;
 constexpr bool DCF_USE_INTERNAL_PULLUP = DCF77_USE_INTERNAL_PULLUP != 0;
+constexpr bool DCF_PON_ACTIVE_LOW = DCF77_PON_ACTIVE_LOW != 0;
+constexpr uint32_t DCF_PON_RESTART_MS = 3000UL;
 
 // Standard DCF77 amplitude-modulation pulse windows.
 constexpr uint32_t DCF_ZERO_MIN_US = 60000UL;
