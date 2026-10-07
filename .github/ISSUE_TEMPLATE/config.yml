@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentazione di troubleshooting
+    url: https://github.com/pgpaolo/esp32-dcf77-diagnostic/blob/main/docs/TROUBLESHOOTING.md
+    about: Controlla prima la procedura di diagnosi DCF77.
