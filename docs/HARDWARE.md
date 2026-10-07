@@ -24,6 +24,22 @@ sec 59: nessun impulso
 
 Non è necessario che il modulo esponga la portante RF a 77,5 kHz.
 
+## Controllo PON
+
+Per i moduli che espongono `PON`/enable il progetto usa:
+
+```text
+D1 / GPIO5 -> PON
+```
+
+Default:
+
+```ini
+-D DCF77_PON_ACTIVE_LOW=1
+```
+
+quindi LOW abilita il ricevitore e HIGH lo disabilita. Se il modulo utilizzato documenta la logica opposta, impostare `DCF77_PON_ACTIVE_LOW=0`.
+
 ## Requisiti elettrici
 
 Prima di collegare un modulo verificare sempre:
