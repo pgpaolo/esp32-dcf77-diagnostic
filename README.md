@@ -12,15 +12,15 @@ Firmware dedicato a **ESP8266 NodeMCU HW-364A + OLED SSD1306 + ricevitore DCF77 
 
 | Voce | Stato |
 |---|---|
-| Sviluppo | **ACTIVE / STABLE** |
+| Sviluppo | **RAW HARDWARE VALIDATION** |
 | Target | HW-364A / ESP8266 |
+| Ricevitore | DCF-3850N-800 / SP6007 |
 | Segnale | DCF77 77,5 kHz |
-| Decoder predefinito | ACCUMULO / radio clock |
+| Modalità corrente | acquisizione RAW |
+| Decoder ora/data | temporaneamente non attivo |
 | Environment PlatformIO | `hw364a` |
-| Firmware binario | non ancora pubblicato |
 
-
-Il progetto è stato riportato a una architettura semplice e specifica per una vera ricevente DCF77: acquisizione diretta degli edge digitali, decodifica 100/200 ms, marker minuto, parità e ora/data.
+La versione corrente è volutamente ridotta alla sola **acquisizione RAW** del segnale della ricevente. Prima si validano livello logico, edge, impulsi e periodo; solo dopo verrà riattivata la decodifica completa.
 
 ![Anteprima console DCF77](docs/console-preview.svg)
 
@@ -54,8 +54,8 @@ pio run -e hw364a
 
 | Funzione | HW-364A |
 |---|---:|
-| DATA ricevitore DCF77 | D7 / GPIO13 |
-| PON / enable ricevitore | D1 / GPIO5 |
+| T / DATA ricevitore | D7 / GPIO13 |
+| P1 / PON ricevitore | D1 / GPIO5, forzato LOW |
 | OLED SDA | D5 / GPIO14 |
 | OLED SCL | D6 / GPIO12 |
 | Pulsante pagina | FLASH / GPIO0 |
@@ -114,16 +114,10 @@ Il firmware misura direttamente gli edge dell'uscita digitale del ricevitore:
 7. verifica struttura, BCD, parità P1/P2/P3 e plausibilità della data/ora;
 8. aggiorna la griglia grafica dei 59 bit con confidenza individuale.
 
-### Due modalità di decodifica
+### Decoder temporaneamente sospeso
 
-Dal portale web si può scegliere tra:
+Le modalità DIRETTA/ACCUMULO restano documentate come sviluppo successivo, ma **non sono il riferimento della build corrente**. Prima deve essere dimostrata una ricezione RAW stabile dal pin T del modulo.
 
-- **DIRETTA / strict**: usa finestre temporali strette, richiede tutti i 59 bit validi e sincronizza l'orologio dopo un singolo frame completo con P1/P2/P3 corrette;
-- **ACCUMULO / radio clock**: usa una classificazione morbida 100/200 ms con confidenza per ogni bit, tollera alcuni bit incerti e decodifica i campi BCD per punteggio. Un minuto plausibile diventa un candidato; l'orologio viene sincronizzato solo dopo **due minuti consecutivi coerenti** (+60 s), come strategia tipica degli orologi radiocontrollati.
-
-La modalità ACCUMULO è quella predefinita. La scelta effettuata dal portale viene salvata in EEPROM e resta attiva dopo il riavvio.
-
-> L'accumulo non somma ciecamente lo stesso bit tra minuti diversi, perché minuti e ore cambiano. Accumula invece confidenza del frame, coerenza dei campi e continuità temporale tra minuti consecutivi.
 
 ## Console web
 
@@ -187,6 +181,7 @@ La selezione viene salvata in EEPROM insieme alla modalità del decoder e resta 
 
 | Documento | Contenuto |
 |---|---|
+| [Baseline RAW](docs/RAW_BASELINE.md) | acquisizione grezza del DCF-3850N-800 |
 | [HW364A](docs/HW364A.md) | cablaggio, polarità, compilazione e collaudo hardware |
 | [Codifica DCF77](docs/DCF77_FRAME.md) | struttura del minuto, BCD, CET/CEST e parità |
 | [Architettura](docs/ARCHITECTURE.md) | flusso dati, ISR, decoder, clock, EEPROM |
