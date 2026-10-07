@@ -1,0 +1,48 @@
+name: Bug report
+description: Segnala un problema software o di compilazione
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie per la segnalazione. Inserisci i dati tecnici necessari per riprodurre il problema.
+  - type: input
+    id: commit
+    attributes:
+      label: Commit / versione
+      placeholder: SHA oppure branch
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      placeholder: HW-364A, ricevitore DCF77, OLED...
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Modalità decoder
+      options:
+        - ACCUMULO
+        - DIRETTA
+        - Non applicabile
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema
+      description: Descrivi comportamento osservato e comportamento atteso.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log / output
+      render: text
+  - type: input
+    id: build
+    attributes:
+      label: Risultato pio run
+      placeholder: SUCCESS / errore
