@@ -7,14 +7,16 @@
 <text x="220" y="215" text-anchor="middle" fill="#fff" font-family="Arial" font-size="25" font-weight="700">Ricevitore DCF77</text>
 <text x="220" y="255" text-anchor="middle" fill="#9fc7d8" font-family="Arial" font-size="18">77,5 kHz</text>
 <circle cx="335" cy="315" r="8" fill="#62f0aa"/><text x="290" y="322" text-anchor="end" fill="#eef6fb" font-family="Arial" font-size="18">DATA</text>
-<circle cx="335" cy="370" r="8" fill="#ffd479"/><text x="290" y="377" text-anchor="end" fill="#eef6fb" font-family="Arial" font-size="18">VCC</text>
+<circle cx="335" cy="350" r="8" fill="#f0a85a"/><text x="290" y="357" text-anchor="end" fill="#eef6fb" font-family="Arial" font-size="18">PON</text>
+<circle cx="335" cy="390" r="8" fill="#ffd479"/><text x="290" y="397" text-anchor="end" fill="#eef6fb" font-family="Arial" font-size="18">VCC</text>
 <circle cx="335" cy="425" r="8" fill="#c1c8cc"/><text x="290" y="432" text-anchor="end" fill="#eef6fb" font-family="Arial" font-size="18">GND</text>
 
 <rect x="455" y="135" width="300" height="400" rx="20" fill="#193346" stroke="#4d7890" stroke-width="2"/>
 <text x="605" y="185" text-anchor="middle" fill="#fff" font-family="Arial" font-size="25" font-weight="700">HW-364A</text>
 <text x="605" y="218" text-anchor="middle" fill="#9fc7d8" font-family="Arial" font-size="18">ESP8266 NodeMCU</text>
 <circle cx="490" cy="315" r="8" fill="#62f0aa"/><text x="515" y="322" fill="#eef6fb" font-family="Arial" font-size="18">D7 / GPIO13</text>
-<circle cx="490" cy="370" r="8" fill="#ffd479"/><text x="515" y="377" fill="#eef6fb" font-family="Arial" font-size="18">3V3 / VCC*</text>
+<circle cx="490" cy="350" r="8" fill="#f0a85a"/><text x="515" y="357" fill="#eef6fb" font-family="Arial" font-size="18">D1 / GPIO5 (PON)</text>
+<circle cx="490" cy="390" r="8" fill="#ffd479"/><text x="515" y="397" fill="#eef6fb" font-family="Arial" font-size="18">3V3 / VCC*</text>
 <circle cx="490" cy="425" r="8" fill="#c1c8cc"/><text x="515" y="432" fill="#eef6fb" font-family="Arial" font-size="18">GND</text>
 <circle cx="720" cy="290" r="8" fill="#67a7e8"/><text x="690" y="297" text-anchor="end" fill="#eef6fb" font-family="Arial" font-size="18">D5 / GPIO14</text>
 <circle cx="720" cy="345" r="8" fill="#d17bb5"/><text x="690" y="352" text-anchor="end" fill="#eef6fb" font-family="Arial" font-size="18">D6 / GPIO12</text>
@@ -26,7 +28,8 @@
 <text x="985" y="405" text-anchor="middle" fill="#9fc7d8" font-family="Arial" font-size="16">VCC/GND secondo modulo</text>
 
 <line x1="343" y1="315" x2="482" y2="315" stroke="#62f0aa" stroke-width="4"/>
-<line x1="343" y1="370" x2="482" y2="370" stroke="#ffd479" stroke-width="4"/>
+<line x1="343" y1="350" x2="482" y2="350" stroke="#f0a85a" stroke-width="4"/>
+<line x1="343" y1="390" x2="482" y2="390" stroke="#ffd479" stroke-width="4"/>
 <line x1="343" y1="425" x2="482" y2="425" stroke="#c1c8cc" stroke-width="4"/>
 <line x1="728" y1="290" x2="867" y2="290" stroke="#67a7e8" stroke-width="4"/>
 <line x1="728" y1="345" x2="867" y2="345" stroke="#d17bb5" stroke-width="4"/>
