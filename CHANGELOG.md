@@ -22,6 +22,7 @@ Il formato segue lo stile di [Keep a Changelog](https://keepachangelog.com/) e i
 - CI GitHub Actions con PlatformIO.
 
 ### Changed
+- riportata la build corrente a una baseline RAW DCF-3850N-800: P1 LOW fisso, T/DATA come INPUT senza pull-up, acquisizione edge/pulse prima della decodifica;
 - progetto semplificato per una vera ricevente DCF77 77,5 kHz con uscita digitale;
 - `hw364a` impostato come environment PlatformIO predefinito;
 - eliminati i vecchi percorsi sperimentali legati a ricevitori non corretti, MSF/60 kHz, PLL RAW e ricostruzioni software del segnale.
