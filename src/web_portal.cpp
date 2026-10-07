@@ -8,6 +8,9 @@ namespace {
 ESP8266WebServer server(80);
 DCF77Decoder *decoderPtr = nullptr;
 bool resetRequested = false;
+ReceiverControlRequest receiverControlRequest = ReceiverControlRequest::NONE;
+bool receiverEnabledReported = true;
+bool receiverRestartingReported = false;
 DecodeMode configuredMode = DecodeMode::ACCUMULATE;
 OledViewMode configuredDisplayMode = OledViewMode::AUTO;
 
@@ -52,6 +55,18 @@ table{width:100%;border-collapse:collapse}td,th{padding:7px;border-bottom:1px so
     <button onclick="setMode()">Applica</button>
     <span id=modeMsg class=muted></span>
   </div>
+</div>
+
+<div class=card>
+  <div class=modebar>
+    <b>Ricevitore DCF77 / PON</b>
+    <span id=ponPill class=modepill>ON</span>
+    <button onclick="receiverPower('on')">ON</button>
+    <button onclick="receiverPower('off')">OFF</button>
+    <button onclick="receiverPower('restart')">Restart 3 s</button>
+    <span id=ponMsg class=muted></span>
+  </div>
+  <div class=muted style="margin-top:6px">PON è il controllo hardware di alimentazione/enable del modulo; è separato dalla modalità software ACCUMULO.</div>
 </div>
 
 <div class=card>
@@ -124,6 +139,8 @@ async function update(){
     el('clock').textContent=d.clockAvailable?d.time:'--:--:--';el('date').textContent=d.clockAvailable?d.date:'Attesa frame valido';
     el('modePill').textContent=d.modeLabel;el('modeSel').value=d.mode==='accumulate'?'accumulate':'direct';
     el('displayPill').textContent=d.displayLabel;el('displaySel').value=d.displayMode;
+    el('ponPill').textContent=d.receiverRestarting?'RESTART':(d.receiverEnabled?'ON':'OFF');
+    el('ponPill').className='modepill '+(d.receiverEnabled?'ok':(d.receiverRestarting?'warn':'bad'));
     const vals=[['Stato minuto',d.minuteSynced?'SYNC':'SEARCH'],['Qualità',d.quality+'%'],['Posizione frame',d.frameBitCount+' / 59'],
       ['Impulso',d.pulseMs.toFixed(1)+' ms'],['Periodo',d.periodMs.toFixed(1)+' ms'],['Marker minuto',d.minuteMarkers],
       ['Frame validi',d.validFrames],['Frame invalidi',d.invalidFrames],['Parità KO',d.parityErrors],['Timing KO',d.timingErrors]];
@@ -157,6 +174,11 @@ async function setDisplay(){
   const body=new URLSearchParams({display:el('displaySel').value});
   const r=await fetch('/api/display',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
   const d=await r.json();el('displayMsg').textContent=d.message||'';setTimeout(update,300);
+}
+async function receiverPower(action){
+  const body=new URLSearchParams({action});
+  const r=await fetch('/api/receiver/power',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+  const d=await r.json();el('ponMsg').textContent=d.message||'';setTimeout(update,300);
 }
 async function scan(){const d=await(await fetch('/api/networks')).json();el('ssid').innerHTML=d.networks.map(n=>'<option>'+n+'</option>').join('')}
 async function connectWifi(){await fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({ssid:el('ssid').value,password:el('pass').value})})}
@@ -236,6 +258,8 @@ void status() {
     j+=",\"modeLabel\":\"";j+=decoderPtr->decodeModeLabel();j+="\"";
     j+=",\"displayMode\":\"";j+=displayValue(configuredDisplayMode);j+="\"";
     j+=",\"displayLabel\":\"";j+=displayLabel(configuredDisplayMode);j+="\"";
+    j+=",\"receiverEnabled\":";j+=receiverEnabledReported?"true":"false";
+    j+=",\"receiverRestarting\":";j+=receiverRestartingReported?"true":"false";
     j+=",\"minuteSynced\":";j+=s.minuteSynced?"true":"false";
     j+=",\"clockLocked\":";j+=s.clockLocked?"true":"false";
     j+=",\"quality\":"+String(s.quality);
@@ -343,6 +367,29 @@ void setDisplay() {
     server.send(200,"application/json",j);
 }
 
+void receiverPower() {
+    if(!server.hasArg("action")){
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Azione mancante\"}");
+        return;
+    }
+
+    const String action=server.arg("action");
+    if(action=="on") receiverControlRequest=ReceiverControlRequest::POWER_ON;
+    else if(action=="off") receiverControlRequest=ReceiverControlRequest::POWER_OFF;
+    else if(action=="restart") receiverControlRequest=ReceiverControlRequest::RESTART;
+    else {
+        server.send(400,"application/json","{\"ok\":false,\"message\":\"Azione PON non valida\"}");
+        return;
+    }
+
+    String msg="{\"ok\":true,\"message\":\"";
+    if(action=="on") msg+="Ricevitore ON";
+    else if(action=="off") msg+="Ricevitore OFF";
+    else msg+="Riavvio ricevitore: OFF 3 s -> ON";
+    msg+="\"}";
+    server.send(200,"application/json",msg);
+}
+
 void wifiStatus() {
     String j="{\"connected\":";j+=WiFi.status()==WL_CONNECTED?"true":"false";
     j+=",\"ssid\":\""+esc(WiFi.status()==WL_CONNECTED?WiFi.SSID():String(""))+"\"";
@@ -386,6 +433,7 @@ void portalBegin() {
     server.on("/api/pulses",HTTP_GET,pulses);
     server.on("/api/mode",HTTP_POST,setMode);
     server.on("/api/display",HTTP_POST,setDisplay);
+    server.on("/api/receiver/power",HTTP_POST,receiverPower);
     server.on("/api/wifi",HTTP_GET,wifiStatus);
     server.on("/api/networks",HTTP_GET,networks);
     server.on("/api/wifi/connect",HTTP_POST,connectWifi);
@@ -403,3 +451,12 @@ bool portalTakeResetRequest(){bool r=resetRequested;resetRequested=false;return 
 const char *portalAddress(){return "192.168.4.1";}
 OledViewMode portalDisplayMode(){return configuredDisplayMode;}
 const char *portalDisplayModeLabel(){return displayLabel(configuredDisplayMode);}
+ReceiverControlRequest portalTakeReceiverControlRequest(){
+    const ReceiverControlRequest r=receiverControlRequest;
+    receiverControlRequest=ReceiverControlRequest::NONE;
+    return r;
+}
+void portalReportReceiverStatus(bool enabled,bool restarting){
+    receiverEnabledReported=enabled;
+    receiverRestartingReported=restarting;
+}
