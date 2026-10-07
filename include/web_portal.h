@@ -1,26 +1,31 @@
 #pragma once
-#include "dcf77_decoder.h"
+#include <Arduino.h>
 
-enum class OledViewMode : uint8_t {
-    AUTO = 0,
-    CLOCK = 1,
-    SIGNAL = 2,
-    DECODER = 3,
-    DIAGNOSTICS = 4
+struct RawSignalStats {
+    uint32_t totalEdges = 0;
+    uint32_t totalPulses = 0;
+    uint32_t validPulses = 0;
+    uint32_t invalidPulses = 0;
+    uint32_t minuteGaps = 0;
+    uint32_t lastPulseUs = 0;
+    uint32_t lastPeriodUs = 0;
+    uint32_t lastEdgeAgeMs = 0;
+    uint16_t edgesPerSecond = 0;
+    int8_t lastBitGuess = -1;
+    bool dataLevel = false;
+    bool ponLow = true;
 };
 
-enum class ReceiverControlRequest : uint8_t {
-    NONE = 0,
-    POWER_ON = 1,
-    POWER_OFF = 2,
-    RESTART = 3
+struct RawPulseSample {
+    uint32_t ageMs = 0;
+    uint32_t widthUs = 0;
+    uint32_t periodUs = 0;
+    int8_t bitGuess = -1;
+    bool valid = false;
 };
 
 void portalBegin();
-void portalPoll(DCF77Decoder &decoder);
-bool portalTakeResetRequest();
+void portalPoll();
+void portalReportRaw(const RawSignalStats &stats);
+void portalPushPulse(const RawPulseSample &sample);
 const char *portalAddress();
-OledViewMode portalDisplayMode();
-const char *portalDisplayModeLabel();
-ReceiverControlRequest portalTakeReceiverControlRequest();
-void portalReportReceiverStatus(bool enabled, bool restarting);
