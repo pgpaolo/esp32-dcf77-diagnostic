@@ -4,4 +4,4 @@
 # Commercial use requires a separate written license from the copyright holder.
 # See LICENSE and NOTICE.md.
 
-platformio==6.1.18
+platformio==6.2.0
