@@ -5,12 +5,16 @@
 # See LICENSE and NOTICE.md.
 
 version: 2
+
+# Version-update PRs are intentionally disabled (open-pull-requests-limit: 0).
+# Dependabot alerts and security-update PRs, when enabled in GitHub Security settings,
+# remain separate from routine scheduled version updates.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
       - "security"
@@ -19,7 +23,7 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
       - "security"
