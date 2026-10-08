@@ -1,204 +1,127 @@
-# DCF77 HW-364A
+# DCF77 RC8000 Console v2.5.4
 
-[![PlatformIO Build](https://github.com/pgpaolo/esp32-dcf77-diagnostic/actions/workflows/platformio.yml/badge.svg)](https://github.com/pgpaolo/esp32-dcf77-diagnostic/actions/workflows/platformio.yml)
-![License](https://img.shields.io/github/license/pgpaolo/esp32-dcf77-diagnostic)
-![PlatformIO](https://img.shields.io/badge/PlatformIO-HW364A-orange)
-![ESP8266](https://img.shields.io/badge/MCU-ESP8266-blue)
-![DCF77](https://img.shields.io/badge/Signal-DCF77%2077.5%20kHz-2ea44f)
+Firmware **ESP8266 / HW-364A** per la ricezione e la diagnostica DCF77 con ricevitore esterno **RC8000 / DCF-3850N-800**, console Web, recupero robusto dei frame, OLED integrato e duty-cycle automatico della radio.
 
-Firmware dedicato a **ESP8266 NodeMCU HW-364A + OLED SSD1306 + ricevitore DCF77 77,5 kHz**.
+> Il nome storico del repository contiene `esp32`, ma la release **2.5.4** qui pubblicata è specifica per **ESP8266** e per la board HW-364A.
 
-## Stato del progetto
+**English documentation:** [README.en.md](README.en.md)
 
-| Voce | Stato |
-|---|---|
-| Sviluppo | **RAW HARDWARE VALIDATION** |
-| Target | HW-364A / ESP8266 |
-| Ricevitore | DCF-3850N-800 / SP6007 |
-| Segnale | DCF77 77,5 kHz |
-| Modalità corrente | acquisizione RAW |
-| Decoder ora/data | temporaneamente non attivo |
-| Environment PlatformIO | `hw364a` |
+## Stato della release
 
-La versione corrente è volutamente ridotta alla sola **acquisizione RAW** del segnale della ricevente. Prima si validano livello logico, edge, impulsi e periodo; solo dopo verrà riattivata la decodifica completa.
+Questa branch `main` contiene esclusivamente la base **v2.5.4**. Le versioni sperimentali precedenti non fanno parte dell'albero corrente.
 
-![Anteprima console DCF77](docs/console-preview.svg)
+La 2.5.4 nasce da prove reali su segnale DCF77 disturbato e mantiene quattro principi: recupero del clock a 1 Hz, ricostruzione deterministica degli erasure, OLED completamente silenzioso durante la ricezione e spegnimento temporizzato del ricevitore dopo sincronizzazioni valide.
 
-## Profilo PlatformIO predefinito
+## Hardware di riferimento
 
-Il profilo **HW364A è il default del progetto**:
+| Funzione | Hardware / GPIO | Note |
+|---|---|---|
+| MCU / board | HW-364A, ESP8266 | OLED 0.96" 128x64 integrato |
+| DCF DATA | GPIO13 | ingresso impulsi dal RC8000 |
+| DCF PON | GPIO5 | **active LOW**: LOW = ricevitore ON |
+| OLED SDA | GPIO14 | bus I2C integrato HW-364A |
+| OLED SCL | GPIO12 | bus I2C integrato HW-364A |
+| OLED address | `0x3C` | probe anche `0x3D`; fallback SH1106 |
+| Alimentazione ricevitore | 3.3 V | massa comune con ESP8266 |
 
-```ini
-[platformio]
-default_envs = hw364a
+I numeri **GPIO** sono il riferimento autorevole: la serigrafia `D5/D6` non è uniforme nelle documentazioni commerciali della HW-364A. Il firmware esegue inoltre un probe delle due possibili polarità SDA/SCL osservate su differenti batch.
+
+Dettagli: [Hardware](docs/HARDWARE.md) · [Cablaggio](docs/WIRING.md)
+
+## Perché l'OLED viene spento durante la ricerca
+
+Sul banco di prova il display integrato ha ridotto sensibilmente la qualità del segnale ricevuto. La v2.5.4 quindi **non aggiorna semplicemente meno spesso l'OLED**: lo rende RF-quiet mentre il ricevitore è acceso.
+
+```mermaid
+stateDiagram-v2
+    [*] --> SEARCH: boot
+    SEARCH: RADIO ON / OLED OFF
+    SEARCH --> SYNC: frame DCF77 validi
+    SYNC --> HOLDOVER: raggiunti N sync validi
+    HOLDOVER: RADIO OFF / OLED ON
+    HOLDOVER --> SEARCH: scadenza timer
 ```
 
-Quindi per compilare e caricare non è necessario specificare `-e hw364a`:
+- **RADIO ON** → OLED OFF, niente refresh e niente traffico I2C periodico.
+- Dopo il numero configurato di frame validi (default **2**) → PON spegne RC8000.
+- **RADIO OFF** → OLED ON e visualizzazione immediata di ora/data in HOLDOVER.
+- Dopo il tempo configurato (default **60 min**) → OLED OFF **prima** della riaccensione del ricevitore.
+
+## Decoder e correzione del frame
+
+La decodifica non si basa sui fronti RAW in modo ingenuo. Il firmware recupera una fase dominante a 1 Hz, ricostruisce slot temporali e filtra glitch / impulsi fuori fase. In fase di finalizzazione:
+
+- il bit 20, fisso a `1`, può essere ricostruito se assente;
+- è recuperabile **un bit mancante per ciascun blocco di parità**: minuti, ore, data;
+- un frame con **57 bit fisici + 2 bit determinabili** può quindi essere salvato;
+- non vengono inventati bit quando più soluzioni restano possibili.
+
+Vedi [Protocollo e recovery DCF77](docs/DCF77.md).
+
+## Funzioni principali
+
+- Clock recovery statistico e PLL logico a 1 Hz.
+- Ricostruzione slot 0..58 e marker del minuto anche se coperto da rumore.
+- Decodifica ora, data, giorno settimana, CET/CEST, annuncio DST e leap second.
+- Parity erasure recovery per minuti / ore / data.
+- Console Web Basic / Advanced e mappa live dei 59 bit.
+- Qualità filtro, impulsi recenti, histogram, contatori reject e frame OK/KO.
+- `RF QUIET` di 60 s per confrontare ricezione con Wi-Fi spento.
+- test `AUTO A/B` tra `INPUT` e `INPUT_PULLUP`.
+- Configurazione Wi-Fi via Web e LittleFS, con captive portal di fallback.
+- Timer radio configurabile e persistente in LittleFS.
+- OLED SSD1306 128x64; fallback SH1106 e auto-probe I2C.
+
+## Build rapido
+
+Richiede [PlatformIO](https://platformio.org/) e un ESP8266 compatibile `nodemcuv2`.
 
 ```bash
+git clone https://github.com/pgpaolo/esp32-dcf77-diagnostic.git
+cd esp32-dcf77-diagnostic
 pio run
 pio run -t upload
-pio device monitor
+pio device monitor -b 115200
 ```
 
-Il comando esplicito resta comunque valido:
+Non è necessario inserire credenziali Wi-Fi nel sorgente. Al primo avvio senza configurazione valida viene creato un access point di setup. In alternativa è possibile creare localmente `include/secrets.h` con `WIFI_SSID` e `WIFI_PASSWORD`. Il file è escluso da Git e non deve essere pubblicato.
 
-```bash
-pio run -e hw364a
-```
+Guida completa: [Build e configurazione](docs/BUILD.md).
 
-## Collegamenti
+## Wi-Fi di setup
 
-![Schema collegamenti](docs/WIRING.svg)
+Se la connessione STA non riesce, il firmware crea un AP `DCF77-Setup-XXXXXX`, espone il portale su `192.168.4.1` e consente di salvare SSID/password/hostname in LittleFS. La scansione delle reti è **solo on-demand**, perché può peggiorare temporaneamente la ricezione.
 
+> La password dell'AP di setup è una credenziale di provisioning, non una misura di sicurezza per reti ostili. Usare il dispositivo su una LAN fidata.
 
-| Funzione | HW-364A |
-|---|---:|
-| T / DATA ricevitore | D7 / GPIO13 |
-| P1 / PON ricevitore | D1 / GPIO5, forzato LOW |
-| OLED SDA | D5 / GPIO14 |
-| OLED SCL | D6 / GPIO12 |
-| Pulsante pagina | FLASH / GPIO0 |
-| GND | GND |
+## Criticità note
 
-La configurazione predefinita considera DATA **active-low con pull-up interno**. Se il modulo acquistato fornisce un'uscita attiva alta, impostare `DCF77_ACTIVE_LOW=0` in `platformio.ini`.
+1. **OLED / rumore digitale:** sul sistema testato può degradare fortemente DCF77; per questo è spento durante RX.
+2. **Wi-Fi scan:** genera attività RF e CPU significativa; usarla solo per configurazione.
+3. **Posizionamento antenna:** il DCF77 a 77.5 kHz è sensibile a alimentatori switching, USB, display, MCU e cablaggi digitali vicini.
+4. **PON:** GPIO5 è active-low nella configurazione di riferimento; un'inversione lascia il ricevitore spento.
+5. **DATA bias:** `INPUT` è il default che ha dato i risultati migliori sul banco; `AUTO A/B` permette una verifica sperimentale.
+6. **Recovery:** la parità corregge erasure deterministiche, non bit arbitrariamente errati. Due missing nello stesso blocco di parità non sono univocamente ricostruibili.
+7. **Secondi:** DCF77 non trasmette un valore numerico dei secondi; vengono derivati localmente e riallineati al marker.
 
-> Verificare sempre tensione di alimentazione e pinout del modulo utilizzato: i ricevitori DCF77 commerciali non hanno tutti la stessa disposizione dei pin.
-
-### Controllo hardware PON
-
-Il pin `PON` del ricevitore è gestito separatamente dalla modalità software **ACCUMULO**.
-
-Configurazione predefinita:
-
-```text
-PON -> D1 / GPIO5
-LOW = ricevitore attivo
-HIGH = ricevitore disabilitato
-```
-
-Dal portale web sono disponibili **ON**, **OFF** e **Restart 3 s**. Il restart porta PON nello stato OFF per 3 secondi e poi riattiva il modulo, azzerando contestualmente lo stato del decoder.
-
-## Come viene codificato DCF77
-
-DCF77 trasmette su **77,5 kHz**. Ogni secondo, eccetto il secondo 59, la portante viene attenuata all'inizio del secondo:
-
-- attenuazione di circa **100 ms** = bit `0`;
-- attenuazione di circa **200 ms** = bit `1`;
-- al **secondo 59** l'impulso AM viene omesso: il ricevitore osserva quindi un intervallo di circa 2 s tra gli inizi degli impulsi del secondo 58 e del secondo 0 successivo.
-
-Il frame contiene 59 bit utili. I campi principali sono:
-
-- secondo 16: annuncio cambio ora legale;
-- 17-18: CET/CEST;
-- 19: annuncio secondo intercalare;
-- 20: start-of-time-information;
-- 21-27: minuti BCD;
-- 28: parità minuti;
-- 29-34: ore BCD;
-- 35: parità ore;
-- 36-58: data, giorno settimana, mese, anno e parità data.
-
-La documentazione dettagliata è in [docs/DCF77_FRAME.md](docs/DCF77_FRAME.md).
-
-## Funzionamento del firmware
-
-Il firmware misura direttamente gli edge dell'uscita digitale del ricevitore:
-
-1. rileva l'inizio dell'impulso;
-2. misura la larghezza;
-3. classifica 100 ms come `0` e 200 ms come `1`;
-4. misura l'intervallo tra gli inizi degli impulsi;
-5. riconosce il marker minuto quando l'intervallo è vicino a 2 s;
-6. raccoglie 59 bit;
-7. verifica struttura, BCD, parità P1/P2/P3 e plausibilità della data/ora;
-8. aggiorna la griglia grafica dei 59 bit con confidenza individuale.
-
-### Decoder temporaneamente sospeso
-
-Le modalità DIRETTA/ACCUMULO restano documentate come sviluppo successivo, ma **non sono il riferimento della build corrente**. Prima deve essere dimostrata una ricezione RAW stabile dal pin T del modulo.
-
-
-## Console web
-
-La console web è stata mantenuta volutamente semplice: deve mostrare immediatamente se il ricevitore sta producendo impulsi DCF77 plausibili e se il frame è sincronizzato.
-
-![Anteprima console DCF77](docs/console-preview.svg)
-
-Per una descrizione completa dei campi vedere [docs/CONSOLE.md](docs/CONSOLE.md).
-
-All'avvio resta disponibile l'AP:
-
-`DCF77-HW364A-xxxxxx`
-
-con portale su `http://192.168.4.1`.
-
-La console mostra:
-
-- selettore **DIRETTA / ACCUMULO**;
-- ora e data sincronizzate;
-- stato SEARCH/SYNC;
-- qualità del segnale;
-- posizione del frame;
-- griglia grafica dei **59 bit DCF77**, con valore e confidenza;
-- colori distinti per servizio, zona/controllo, minuti, ore e data;
-- stato dell'accumulo: minuti candidati coerenti, confidenza dei campi, bit incerti e bit recuperati;
-- ultimo impulso, periodo e marker minuto;
-- frame validi/invalidi;
-- errori di parità e timing;
-- tabella degli impulsi recenti;
-- diagnostica avanzata con uptime, heap, RSSI, jitter RMS, rapporto impulsi validi, glitch, età dell'ultimo frame valido e stato P1/P2/P3;
-- distribuzione degli ultimi impulsi fra bit 0, bit 1 e simboli incerti;
-- configurazione Wi-Fi;
-- scelta persistente della schermata OLED: **AUTO**, **ORA**, **SEGNALE**, **DECODER/ACCUMULO** oppure **DIAGNOSTICA**.
-
-## Struttura essenziale
-
-- `src/main.cpp`: acquisizione interrupt;
-- `src/dcf77_decoder.cpp`: decodifica DCF77;
-- `src/ui_oled.cpp`: OLED;
-- `src/web_portal.cpp`: console web;
-- `include/config.h`: pin, polarità e finestre temporali.
-
-Vedi anche [docs/HW364A.md](docs/HW364A.md) e [docs/DCF77_FRAME.md](docs/DCF77_FRAME.md).
-
-## Visualizzazione OLED configurabile
-
-Dal portale web è possibile decidere cosa mostrare stabilmente sul display OLED.
-
-| Modalità | Contenuto |
-|---|---|
-| AUTO | rotazione automatica fra le quattro schermate |
-| ORA | ora, data e contatori frame |
-| SEGNALE | impulso, periodo, bit/confidenza e jitter RMS |
-| DECODER | posizione frame e stato accumulo/decodifica |
-| DIAGNOSTICA | percentuale impulsi validi, heap, RSSI, glitch, timing e lock |
-
-La selezione viene salvata in EEPROM insieme alla modalità del decoder e resta attiva dopo il riavvio.
-
+Vedi [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Documentazione
 
-| Documento | Contenuto |
-|---|---|
-| [Baseline RAW](docs/RAW_BASELINE.md) | acquisizione grezza del DCF-3850N-800 |
-| [HW364A](docs/HW364A.md) | cablaggio, polarità, compilazione e collaudo hardware |
-| [Codifica DCF77](docs/DCF77_FRAME.md) | struttura del minuto, BCD, CET/CEST e parità |
-| [Architettura](docs/ARCHITECTURE.md) | flusso dati, ISR, decoder, clock, EEPROM |
-| [Console web](docs/CONSOLE.md) | interfaccia, accumulo, diagnostica e OLED |
-| [API](docs/API.md) | endpoint HTTP e payload principali |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | diagnosi passo-passo e valori attesi |
-| [Hardware compatibile](docs/HARDWARE.md) | requisiti elettrici e checklist ricevitore |
-| [Changelog](CHANGELOG.md) | modifiche e stato pre-release |
-| [Contributing](CONTRIBUTING.md) | build, stile e pull request |
-| [Security](SECURITY.md) | uso sicuro della console locale |
+- [Hardware](docs/HARDWARE.md) / [English](docs/HARDWARE.en.md)
+- [Cablaggio](docs/WIRING.md) / [English](docs/WIRING.en.md)
+- [Architettura](docs/ARCHITECTURE.md) / [English](docs/ARCHITECTURE.en.md)
+- [DCF77 e correzione](docs/DCF77.md) / [English](docs/DCF77.en.md)
+- [Web/API](docs/API.md) / [English](docs/API.en.md)
+- [Build](docs/BUILD.md) / [English](docs/BUILD.en.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md) / [English](docs/TROUBLESHOOTING.en.md)
+- [Changelog](CHANGELOG.md)
 
-## CI / controllo build
+## Riferimenti tecnici
 
-Ogni push su `main` e ogni pull request eseguono automaticamente:
+- PTB, DCF77 standard-frequency and time dissemination transmitter: https://www.ptb.de/cms/fileadmin/internet/publikationen/broschueren/About_Time_2019en.pdf
+- HW-364A OLED pinout / working examples: https://github.com/Bl4d3hUnt3r/HW364-A and https://github.com/dzwiedziu-nkg/nodemcu-with-oled-example
 
-```bash
-pio run
-```
+## Licenza
 
-sul target predefinito `hw364a`. Il badge in testa al README mostra lo stato della build corrente.
+MIT. Vedi [LICENSE](LICENSE).

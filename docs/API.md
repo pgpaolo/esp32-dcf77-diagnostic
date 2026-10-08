@@ -1,162 +1,49 @@
-# API web
+# Interfaccia Web e API
 
-Il firmware espone una piccola API HTTP sul portale locale.
+La UI Web è servita direttamente dall'ESP8266 sulla porta 80. Il polling della console usa `/api/status`.
 
-Base AP:
+## Endpoint principali
 
-```text
-http://192.168.4.1
-```
+| Metodo | Endpoint | Uso |
+|---|---|---|
+| GET | `/` | console DCF77 |
+| GET | `/api/status` | stato JSON completo |
+| GET | `/wifi` | configurazione Wi-Fi |
+| GET | `/api/wifi/scan` | scansione reti on-demand |
+| POST | `/api/wifi/save` | salva SSID/password/hostname e riavvia |
+| POST | `/api/wifi/reset` | cancella `/wifi.cfg` |
+| GET | `/api/quiet/start` | test RF QUIET di 60 s |
+| GET | `/api/ab/start` | AUTO A/B: INPUT 60 s + INPUT_PULLUP 60 s |
+| POST | `/api/radio/save` | timer radio: enable/syncs/minutes |
+| GET | `/action?do=...` | endpoint diagnostico interno/legacy |
 
-## GET /api/status
+## `/api/status`
 
-Restituisce lo stato generale.
+Il JSON include, tra gli altri:
 
-Campi principali:
+- stato DATA/PON/ricevitore;
+- timer radio e countdown;
+- RAW edge counters, bit0/bit1/noise e valid%;
+- PLL, fase, slot invalidi, reject counters;
+- marker osservati/inferiti e bit persi;
+- frame OK/KO e risultati recovery;
+- clock, data, timezone, weekday, DST/leap announcements;
+- Wi-Fi, RSSI, IP, captive portal;
+- OLED, driver, ACK I2C, pin rilevati e stato RF quiet;
+- risultati AUTO A/B e RF QUIET.
 
-| Campo | Descrizione |
-|---|---|
-| `clockAvailable` | clock DCF77 disponibile |
-| `time` | ora HH:MM:SS |
-| `date` | data e CET/CEST |
-| `mode` | `direct` / `accumulate` |
-| `displayMode` | vista OLED |
-| `minuteSynced` | marker minuto acquisito |
-| `clockLocked` | orologio sincronizzato |
-| `quality` | qualità media impulsi |
-| `frameBitCount` | posizione nel frame |
-| `pulseMs` | durata ultimo impulso |
-| `periodMs` | periodo ultimo impulso |
-| `validFrames` | frame validi |
-| `invalidFrames` | frame non validi |
-| `candidateMinutes` | candidati coerenti in ACCUMULO |
-| `fieldConfidence` | confidenza campi BCD |
-| `uncertainBits` | bit incerti |
-| `recoveredBits` | bit recuperati |
-| `jitterRmsMs` | RMS jitter |
-| `validRatio` | percentuale impulsi validi |
-| `freeHeap` | heap libero |
-| `rssi` | RSSI Wi-Fi STA |
-| `p1/p2/p3` | stato parità |
+La struttura è diagnostica e può evolvere; evitare di trattarla come API stabile senza versionamento nel proprio client.
 
-## GET /api/frame
+## Timer radio
 
-Restituisce:
+`POST /api/radio/save` accetta query/form args:
 
-- frame corrente;
-- ultimo frame completato;
-- array dei 59 bit;
-- confidenza per ogni bit.
+- `enabled=0|1`
+- `syncs=1..10`
+- `minutes=1..1440`
 
-Esempio semplificato:
+La UI espone soltanto questi controlli. Il display è gestito automaticamente dalla stessa state machine, non da pulsanti manuali.
 
-```json
-{
-  "current": {
-    "count": 23,
-    "bits": [0,1,0,-1],
-    "confidence": [100,94,88,0]
-  }
-}
-```
+## Endpoint `/action`
 
-`-1` indica bit non disponibile/incerto.
-
-## GET /api/pulses
-
-Restituisce gli ultimi impulsi osservati con:
-
-- età;
-- larghezza;
-- periodo;
-- bit;
-- confidenza;
-- validità;
-- marker minuto.
-
-## POST /api/mode
-
-Parametri form-urlencoded:
-
-```text
-mode=direct
-```
-
-oppure:
-
-```text
-mode=accumulate
-```
-
-Il cambio modalità azzera il decoder.
-
-## POST /api/display
-
-Valori:
-
-```text
-auto
-clock
-signal
-decoder
-diagnostics
-```
-
-La scelta viene salvata in EEPROM.
-
-## GET /api/networks
-
-Scansione reti Wi-Fi.
-
-## POST /api/wifi/connect
-
-Parametri:
-
-```text
-ssid=<nome>
-password=<password>
-```
-
-## GET /api/wifi
-
-Restituisce stato STA, SSID e IP.
-
-## POST /api/reset
-
-Azzera lo stato del decoder senza riavviare ESP8266.
-
-## Nota di sicurezza
-
-Il portale è pensato per uso locale/embedded.
-
-L'AP non implementa autenticazione applicativa. Se il dispositivo viene usato in un ambiente non fidato è consigliabile:
-
-- proteggere l'AP;
-- limitare l'accesso di rete;
-- non esporre il portale direttamente su Internet.
-
-
-## POST /api/receiver/power
-
-Controlla il pin hardware PON del ricevitore.
-
-Parametri form-urlencoded:
-
-```text
-action=on
-action=off
-action=restart
-```
-
-Comportamento:
-
-- `on`: abilita il ricevitore;
-- `off`: disabilita il ricevitore;
-- `restart`: PON OFF per 3 secondi, reset decoder, quindi PON ON.
-
-`GET /api/status` espone anche:
-
-| Campo | Descrizione |
-|---|---|
-| `receiverEnabled` | stato hardware richiesto del ricevitore |
-| `receiverRestarting` | riavvio PON in corso |
+Resta nel firmware per diagnostica interna (receiver on/off/reset, bias, counters, rawlog). Non è esposto come controllo ordinario nella UI v2.5.4 e può interferire con il duty-cycle se usato manualmente.

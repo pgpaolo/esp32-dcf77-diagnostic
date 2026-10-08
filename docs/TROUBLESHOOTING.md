@@ -1,55 +1,52 @@
-# Troubleshooting RAW DCF77
+# Troubleshooting
 
-La build corrente serve prima di tutto a verificare il segnale elettrico del DCF-3850N-800.
+## OLED spento durante SEARCH
 
-## Collegamento minimo
+È **normale** in v2.5.4. Il display viene tenuto RF-quiet finché la radio è accesa. Deve accendersi quando il duty timer spegne il ricevitore dopo i sync validi.
 
-```text
-G  -> GND
-V  -> 3.3 V
-T  -> D7 / GPIO13
-P1 -> D1 / GPIO5
-```
+## OLED `NON RILEVATO`
 
-Il firmware forza P1 LOW.
+Il firmware prova:
 
-## Primo test
+- GPIO14 SDA / GPIO12 SCL;
+- GPIO12 SDA / GPIO14 SCL;
+- 0x3C e 0x3D;
+- SSD1306 e fallback SH1106.
 
-Aprire la console RAW e verificare:
+Se non riceve ACK, controllare alimentazione della board/display e variante hardware.
 
-- `DATA` cambia stato;
-- `Edge totali` aumenta;
-- `Edge / secondo` non resta sempre a 0;
-- compaiono impulsi nella tabella.
+## CLOCK 1 Hz LOCK ma frame KO
 
-## Se Edge totali = 0
+Controllare:
 
-Controllare nell'ordine:
+- `invalidSlots`, `lostBitGaps`;
+- missing prima/dopo recovery;
+- quale blocco di parità contiene più di un missing;
+- presenza di marker inferiti e reject fuori fase.
 
-1. P1 realmente vicino a 0 V;
-2. V realmente presente sul pin V;
-3. massa G comune;
-4. T collegato al D7/GPIO13;
-5. pinout fisico del modulo;
-6. antenna lontana da ESP8266, OLED e alimentatori switching.
+Un lock stabile non garantisce automaticamente che tutti i bit utili siano determinabili.
 
-## Se ci sono edge ma impulsi strani
+## Qualità bassa / molti spike
 
-Prima non cambiare decoder: annotare livello idle, larghezza HIGH e periodo.
+- tenere OLED spento durante RX (default 2.5.4);
+- evitare scansioni Wi-Fi;
+- eseguire `RF QUIET 60 s` e confrontare;
+- provare AUTO A/B INPUT vs INPUT_PULLUP;
+- spostare/ruotare ferrite;
+- migliorare disaccoppiamento e distanza da USB/switching.
 
-Il comportamento atteso è circa:
+## Ricevitore non produce fronti
 
-```text
-100 ms
-200 ms
-1000 ms
-2000 ms al marker
-```
+Verificare PON: GPIO5 deve andare LOW quando `receiverOn=true` nella configurazione active-low. Verificare 3.3 V e massa comune sul modulo RC8000.
 
-## INPUT_PULLUP
+## Frame con 2-3 missing
 
-La baseline non abilita il pull-up ESP8266 sul pin T. Se il modulo produce edge solo con un pull-up esterno, va verificato elettricamente prima di modificare il firmware.
+Può essere salvato solo se gli erasure sono distribuiti in blocchi indipendenti e ogni blocco ha al massimo un unknown. Tre missing nello stesso blocco non sono ricostruibili con una singola parità.
 
-## Decoder
+## Wi-Fi non si connette
 
-BCD, parità e accumulo non sono oggetto di questa fase. Verranno riattivati solo dopo avere confermato una forma d'onda RAW ripetibile.
+Attendere il fallback AP `DCF77-Setup-XXXXXX`, collegarsi e aprire `192.168.4.1`.
+
+## Timer non spegne la radio
+
+Serve il numero configurato di **frame completi con ora e data valide consecutivamente**. Un frame KO azzera il contatore consecutivo.

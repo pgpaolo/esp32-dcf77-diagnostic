@@ -1,121 +1,59 @@
-# Hardware compatibile
+# Hardware — v2.5.4
 
-## Target principale
+## Componenti
 
-| Componente | Configurazione |
-|---|---|
-| MCU | ESP8266 NodeMCU / HW-364A |
-| Ricevitore | DCF77 77,5 kHz con uscita digitale demodulata |
-| Display | SSD1306 128x64 I2C |
-| Framework | Arduino ESP8266 |
-| Build | PlatformIO |
+La configurazione di riferimento usa **due elementi distinti**:
 
-## Ricevitore DCF77
+1. **HW-364A**: board ESP8266 con OLED integrato 0.96" 128x64.
+2. **RC8000 / DCF-3850N-800**: ricevitore DCF77 esterno a 77.5 kHz con uscita digitale DATA e comando PON.
 
-Il firmware richiede un modulo che fornisca un'uscita digitale con impulsi corrispondenti alla modulazione AM DCF77.
+Questa distinzione è importante: HW-364A non è il ricevitore radio DCF77.
 
-Comportamento atteso:
+## Pinout usato dal firmware
 
-```text
-bit 0 : impulso circa 100 ms
-bit 1 : impulso circa 200 ms
-sec 59: nessun impulso
-```
+| Segnale | GPIO ESP8266 | Direzione | Stato / comportamento |
+|---|---:|---|---|
+| `DCF_DATA_PIN` | 13 | IN | impulsi del ricevitore; default `INPUT` |
+| `DCF_PON_PIN` | 5 | OUT | active LOW: LOW=ON, HIGH=OFF |
+| `OLED_SDA_PIN` | 14 | I2C | SDA OLED integrato |
+| `OLED_SCL_PIN` | 12 | I2C | SCL OLED integrato |
+| OLED address | — | I2C | 0x3C default; probe 0x3D |
 
-Non è necessario che il modulo esponga la portante RF a 77,5 kHz.
+Il firmware prova anche SDA/SCL invertiti (GPIO12/GPIO14) perché sono stati osservati batch HW-364A con documentazione/cablaggio non uniforme.
 
-## DCF-3850N-800 / SP6007
+## OLED
 
-Pin dichiarati dal modulo:
+Target primario: SSD1306 128x64. È presente un fallback SH1106. Durante l'acquisizione DCF77 il display viene spento; con SSD1306 viene disabilitata anche la charge pump per ridurre ulteriormente il rumore del pannello.
 
-```text
-G  = GND
-V  = alimentazione 1.1..3.3 V
-T  = DATA
-P1 = Power On/Off
-```
+## DCF77 receiver
 
-Per questo modello P1 deve essere mantenuto a **logic LOW**.
+Il firmware assume:
 
-Baseline HW-364A:
+- carrier ricevuta dal modulo esterno a 77.5 kHz;
+- DATA digitale con impulsi DCF;
+- PON active-low;
+- alimentazione a 3.3 V nel banco di riferimento;
+- massa comune con ESP8266.
 
-```text
-T  -> D7 / GPIO13
-P1 -> D1 / GPIO5, LOW fisso
-G  -> GND
-V  -> 3.3 V
-```
+## Alimentazione e disaccoppiamento
 
-Il pin T viene letto come `INPUT` semplice, senza pull-up interno.
+DCF77 lavora con segnali molto deboli. Sul ricevitore è consigliato un disaccoppiamento locale vicino ai pin di alimentazione (es. 100 nF ceramico + capacità elettrolitica/bulk adeguata al montaggio). Evitare loop di massa lunghi e alimentatori switching rumorosi a ridosso della ferrite.
 
-## Requisiti elettrici
+## Criticità elettromagnetiche osservate
 
-Prima di collegare un modulo verificare sempre:
+Nel sistema testato sono risultati rilevanti:
 
-- tensione VCC ammessa;
-- livello logico dell'uscita;
-- uscita open-collector/open-drain oppure push-pull;
-- necessità di pull-up esterno;
-- polarità logica.
+- OLED/charge pump e traffico I2C;
+- attività Wi-Fi e soprattutto scansioni;
+- ESP8266 e cablaggi digitali molto vicini alla ferrite;
+- alimentazione USB / switching;
+- orientamento dell'antenna in ferrite.
 
-Il firmware predefinito usa:
+Per questo la 2.5.4 usa una separazione temporale netta: **radio ON = OLED OFF**, **radio OFF = OLED ON**.
 
-```ini
--D DCF77_ACTIVE_LOW=1
--D DCF77_USE_INTERNAL_PULLUP=1
-```
+## Riferimenti HW-364A
 
-## Configurazioni tipiche
+Esempi pubblici riportano OLED 128x64, indirizzo 0x3C e linee su GPIO14/GPIO12. Poiché le etichette D5/D6 sono riportate in modo non uniforme da venditori e progetti, questa documentazione usa sempre i numeri GPIO.
 
-### Uscita active-low open collector
-
-Configurazione consigliata:
-
-```ini
--D DCF77_ACTIVE_LOW=1
--D DCF77_USE_INTERNAL_PULLUP=1
-```
-
-### Uscita active-high
-
-```ini
--D DCF77_ACTIVE_LOW=0
-```
-
-### Pull-up già presente sul modulo
-
-```ini
--D DCF77_USE_INTERNAL_PULLUP=0
-```
-
-## Posizionamento antenna
-
-Per una ferrite DCF77:
-
-- allontanarla dall'ESP8266;
-- evitare alimentatori switching vicini;
-- evitare convertitori DC/DC;
-- evitare cavi USB 3.x vicini;
-- provare a ruotare la ferrite di 90°;
-- mantenere DATA e GND corti quando possibile.
-
-## Known-good checklist
-
-Una configurazione può essere considerata compatibile quando:
-
-- gli impulsi sono prevalentemente 100/200 ms;
-- il periodo normale è circa 1 s;
-- il marker produce circa 2 s;
-- il jitter resta basso;
-- la percentuale impulsi validi resta elevata;
-- il frame raggiunge 59 bit;
-- P1/P2/P3 risultano corrette;
-- ora e data vengono decodificate stabilmente.
-
-## Ricevitori da documentare
-
-Quando viene validato un nuovo modulo aggiungere:
-
-| Modulo | VCC | Polarità | Pull-up | Esito | Note |
-|---|---:|---|---|---|---|
-| Ricevente DCF77 dedicata 77,5 kHz | da verificare sul modello | da verificare | da verificare | in collaudo | nuova ricevente definitiva |
+- https://github.com/Bl4d3hUnt3r/HW364-A
+- https://github.com/dzwiedziu-nkg/nodemcu-with-oled-example
