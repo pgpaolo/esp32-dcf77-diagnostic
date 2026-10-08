@@ -91,7 +91,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          private_key="$(git grep -nF 'BEGIN PRIVATE KEY' -- . || true)"
+          private_key="$(git grep -nF 'BEGIN PRIVATE KEY' -- . ':(exclude).github/workflows/repository-integrity.yml' || true)"
           if [ -n "$private_key" ]; then
             echo "::error::Private-key material detected"
             echo "$private_key"
