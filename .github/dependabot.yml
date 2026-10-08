@@ -1,0 +1,25 @@
+# DCF77 RC8000 Console v2.5.4
+# Copyright (c) 2026 Gianpaolo P.
+# Licensed under the PolyForm Noncommercial License 1.0.0.
+# Commercial use requires a separate written license from the copyright holder.
+# See LICENSE and NOTICE.md.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "security"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "security"

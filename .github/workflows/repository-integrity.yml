@@ -1,0 +1,131 @@
+# DCF77 RC8000 Console v2.5.4
+# Copyright (c) 2026 Gianpaolo P.
+# Licensed under the PolyForm Noncommercial License 1.0.0.
+# Commercial use requires a separate written license from the copyright holder.
+# See LICENSE and NOTICE.md.
+
+name: Repository integrity
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integrity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Required repository files
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            LICENSE
+            NOTICE.md
+            README.md
+            README.en.md
+            SECURITY.md
+            VERSION
+            platformio.ini
+            requirements-ci.txt
+            src/main.cpp
+            .github/CODEOWNERS
+            .github/dependabot.yml
+          )
+          for f in "${required[@]}"; do
+            test -f "$f" || { echo "::error::Required file missing: $f"; exit 1; }
+          done
+
+      - name: License and copyright integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -Fq "PolyForm Noncommercial License 1.0.0" LICENSE
+          grep -Fq "Required Notice: Copyright" NOTICE.md
+          grep -Fq "Copyright (c) 2026 Gianpaolo P." src/main.cpp
+          grep -Fq "Commercial use requires a separate written license" src/main.cpp
+
+          while IFS= read -r f; do
+            case "$f" in
+              LICENSE|VERSION)
+                continue
+                ;;
+              *.md|*.cpp|*.h|*.ini|*.yml|*.yaml|*.txt|.gitignore|.github/CODEOWNERS)
+                if ! grep -Fq "PolyForm Noncommercial License 1.0.0" "$f"; then
+                  echo "::error file=$f::Missing PolyForm license notice"
+                  exit 1
+                fi
+                ;;
+            esac
+          done < <(git ls-files)
+
+      - name: Reject sensitive and generated files
+        shell: bash
+        run: |
+          set -euo pipefail
+          bad_files="$(git ls-files | grep -E '(^|/)(secrets\.h|\.env(\..*)?|id_rsa|id_ed25519)$|\.(pem|key|p12|pfx|bin|elf|map)$' || true)"
+          if [ -n "$bad_files" ]; then
+            echo "::error::Forbidden sensitive/generated files are tracked:"
+            echo "$bad_files"
+            exit 1
+          fi
+
+      - name: Reject obvious embedded secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          private_key="$(git grep -nF 'BEGIN PRIVATE KEY' -- . || true)"
+          if [ -n "$private_key" ]; then
+            echo "::error::Private-key material detected"
+            echo "$private_key"
+            exit 1
+          fi
+
+          wifi="$(git grep -nE '#define[[:space:]]+WIFI_(SSID|PASSWORD)[[:space:]]+"[^"]+"' -- src include 2>/dev/null | grep -v '""' || true)"
+          if [ -n "$wifi" ]; then
+            echo "::error::Hard-coded Wi-Fi configuration detected:"
+            echo "$wifi"
+            exit 1
+          fi
+
+      - name: Require immutable GitHub Action references
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          bad = []
+          for path in Path(".github/workflows").glob("*.y*ml"):
+              for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                  match = re.search(r"^\s*-?\s*uses:\s*([^\s@]+)@([^\s#]+)", line)
+                  if not match:
+                      continue
+                  ref = match.group(2)
+                  if not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+                      bad.append(f"{path}:{number}: {line.strip()}")
+
+          if bad:
+              print("GitHub Actions must be pinned to 40-character commit SHAs:")
+              print("\n".join(bad))
+              sys.exit(1)
+          PY
