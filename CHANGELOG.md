@@ -1,5 +1,12 @@
 # Changelog
 
+## Licensing update — 2026-10-08
+
+- Replaced the MIT license with **PolyForm Noncommercial License 1.0.0**.
+- Added `NOTICE.md` with mandatory attribution notices and commercial-licensing guidance.
+- Clarified in both Italian and English documentation that commercial use requires a separate written license.
+- Firmware source and behavior remain unchanged.
+
 ## 2.5.4 — stable HW-364A / RC8000 baseline
 
 - OLED ownership moved entirely into the radio duty-cycle state machine.

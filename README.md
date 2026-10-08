@@ -124,4 +124,10 @@ Vedi [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Licenza
 
-MIT. Vedi [LICENSE](LICENSE).
+Questo progetto è distribuito sotto **PolyForm Noncommercial License 1.0.0**.
+
+Sono consentiti gli usi personali, didattici, sperimentali e di ricerca **non commerciale**, oltre a modifiche e redistribuzioni nei limiti previsti dalla licenza. L'uso commerciale — inclusi vendita, integrazione in prodotti o servizi a pagamento, preinstallazione su hardware destinato alla vendita o utilizzi con finalità commerciale prevista — richiede una **licenza commerciale separata e un'autorizzazione scritta** del titolare del copyright.
+
+Le attribuzioni e gli avvisi obbligatori devono essere mantenuti. Vedi [LICENSE](LICENSE) e [NOTICE.md](NOTICE.md).
+
+> Questa è una licenza **source-available/noncommercial**, non una licenza open-source permissiva come MIT.
