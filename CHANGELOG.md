@@ -1,4 +1,18 @@
+<!--
+DCF77 RC8000 Console v2.5.4
+Copyright (c) 2026 Gianpaolo P.
+Licensed under the PolyForm Noncommercial License 1.0.0.
+Commercial use requires a separate written license from the copyright holder.
+See LICENSE and NOTICE.md.
+-->
+
 # Changelog
+
+## Documentation / licensing hardening — 2026-10-08
+
+- Repository-wide license headers added to all project-authored text, source and configuration files where syntax permits.
+- LICENSE kept canonical and VERSION kept machine-readable.
+- Front-page explanation added for the DCF77 77.5 kHz time code, bit layout, minute marker, parity and the v2.5.4 receiver strategy.
 
 ## Licensing update — 2026-10-08
 

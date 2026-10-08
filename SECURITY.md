@@ -1,3 +1,11 @@
+<!--
+DCF77 RC8000 Console v2.5.4
+Copyright (c) 2026 Gianpaolo P.
+Licensed under the PolyForm Noncommercial License 1.0.0.
+Commercial use requires a separate written license from the copyright holder.
+See LICENSE and NOTICE.md.
+-->
+
 # Security
 
 - Do not commit `include/secrets.h`; it is intentionally ignored.

@@ -1,3 +1,11 @@
+<!--
+DCF77 RC8000 Console v2.5.4
+Copyright (c) 2026 Gianpaolo P.
+Licensed under the PolyForm Noncommercial License 1.0.0.
+Commercial use requires a separate written license from the copyright holder.
+See LICENSE and NOTICE.md.
+-->
+
 # Web interface and API
 
 The ESP8266 serves the Web UI directly on port 80. The console polls `/api/status`.

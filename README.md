@@ -1,3 +1,11 @@
+<!--
+DCF77 RC8000 Console v2.5.4
+Copyright (c) 2026 Gianpaolo P.
+Licensed under the PolyForm Noncommercial License 1.0.0.
+Commercial use requires a separate written license from the copyright holder.
+See LICENSE and NOTICE.md.
+-->
+
 # DCF77 RC8000 Console v2.5.4
 
 Firmware **ESP8266 / HW-364A** per la ricezione e la diagnostica DCF77 con ricevitore esterno **RC8000 / DCF-3850N-800**, console Web, recupero robusto dei frame, OLED integrato e duty-cycle automatico della radio.
@@ -5,6 +13,59 @@ Firmware **ESP8266 / HW-364A** per la ricezione e la diagnostica DCF77 con ricev
 > Il nome storico del repository contiene `esp32`, ma la release **2.5.4** qui pubblicata è specifica per **ESP8266** e per la board HW-364A.
 
 **English documentation:** [README.en.md](README.en.md)
+
+## Come funziona DCF77
+
+DCF77 è il servizio tedesco di distribuzione dell'ora campione trasmesso per la PTB sulla frequenza **77,5 kHz**. Il trasmettitore invia continuamente una portante a bassissima frequenza; una volta al secondo ne riduce l'ampiezza per codificare un bit temporale. Questo progetto utilizza proprio questa modulazione d'ampiezza.
+
+Il meccanismo è semplice ma molto elegante:
+
+~~~text
+inizio del secondo
+      |
+      +---- riduzione portante per circa 100 ms  -> bit 0
+      |
+      +---- riduzione portante per circa 200 ms  -> bit 1
+
+secondo 59
+      |
+      +---- nessuna riduzione -> marker di fine minuto
+~~~
+
+In pratica **un minuto DCF77 è un frame di 59 posizioni utili**. Il ricevitore non riceve una stringa "22:47:13": riceve una sequenza di impulsi da 100/200 ms sincronizzati ai secondi. Il firmware deve prima riconoscere il ritmo di 1 Hz, classificare ogni impulso come 0 o 1, individuare il secondo mancante che separa i minuti e infine interpretare i bit.
+
+La parte principale del telegramma è organizzata così:
+
+| Bit | Significato |
+|---:|---|
+| 16 | annuncio cambio ora legale |
+| 17-18 | zona oraria CEST/CET |
+| 19 | annuncio leap second |
+| 20 | start-of-time-code, deve essere 1 |
+| 21-27 | minuti in BCD |
+| 28 | parità minuti |
+| 29-34 | ore in BCD |
+| 35 | parità ore |
+| 36-41 | giorno del mese |
+| 42-44 | giorno della settimana |
+| 45-49 | mese |
+| 50-57 | anno |
+| 58 | parità data |
+
+L'ora contenuta nel telegramma descrive **il minuto che sta per iniziare**. Quando arriva il marker del secondo 59, il frame appena ricevuto viene validato e l'orologio può essere allineato al nuovo minuto.
+
+### Perché il progetto è interessante
+
+La difficoltà reale non è leggere 0 e 1, ma farlo in presenza di rumore. A 77,5 kHz sono sufficienti display OLED, alimentatori switching, USB, Wi-Fi, MCU e cablaggi digitali vicini per degradare il segnale. Per questo la v2.5.4:
+
+1. ricostruisce statisticamente la fase dominante a **1 Hz**;
+2. assegna gli impulsi a slot temporali invece di fidarsi ciecamente dei fronti RAW;
+3. usa le parità DCF77 per recuperare **erasure deterministiche**;
+4. spegne completamente OLED/I2C durante la ricerca;
+5. dopo sincronizzazioni valide spegne temporaneamente il ricevitore e mantiene l'ora in **HOLDOVER**;
+6. riaccende periodicamente la radio per correggere la deriva locale.
+
+Quindi il sistema non è soltanto un "decoder DCF77": è un piccolo ricevitore temporale robusto che alterna **acquisizione radio**, **validazione**, **correzione** e **holdover**.
 
 ## Stato della release
 

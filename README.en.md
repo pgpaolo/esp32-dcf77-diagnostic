@@ -1,3 +1,11 @@
+<!--
+DCF77 RC8000 Console v2.5.4
+Copyright (c) 2026 Gianpaolo P.
+Licensed under the PolyForm Noncommercial License 1.0.0.
+Commercial use requires a separate written license from the copyright holder.
+See LICENSE and NOTICE.md.
+-->
+
 # DCF77 RC8000 Console v2.5.4
 
 **ESP8266 / HW-364A** firmware for DCF77 reception and diagnostics with an external **RC8000 / DCF-3850N-800** receiver, Web console, robust frame recovery, integrated OLED support and automatic receiver duty cycling.
@@ -5,6 +13,59 @@
 > The repository name historically contains `esp32`; release **2.5.4** in this `main` branch targets **ESP8266** and the HW-364A board.
 
 **Documentazione italiana:** [README.md](README.md)
+
+## How DCF77 works
+
+DCF77 is the German standard-time dissemination service operated for PTB on **77.5 kHz**. The transmitter continuously radiates a low-frequency carrier and, once per second, reduces its amplitude to encode one time bit. This project decodes that amplitude-modulated time code.
+
+The basic mechanism is simple and elegant:
+
+~~~text
+start of second
+      |
+      +---- carrier reduction for about 100 ms -> bit 0
+      |
+      +---- carrier reduction for about 200 ms -> bit 1
+
+second 59
+      |
+      +---- no reduction -> end-of-minute marker
+~~~
+
+A DCF77 minute is therefore effectively a **59-position time frame**. The receiver never gets a literal string such as "22:47:13": it sees a sequence of 100/200 ms pulses aligned to the seconds. The firmware must first recover the 1 Hz rhythm, classify pulses as 0 or 1, identify the missing pulse that separates minutes, and only then decode the time information.
+
+The main part of the telegram is organized as follows:
+
+| Bit | Meaning |
+|---:|---|
+| 16 | daylight-saving change announcement |
+| 17-18 | CEST/CET time-zone flags |
+| 19 | leap-second announcement |
+| 20 | start-of-time-code, must be 1 |
+| 21-27 | minutes in BCD |
+| 28 | minute parity |
+| 29-34 | hours in BCD |
+| 35 | hour parity |
+| 36-41 | day of month |
+| 42-44 | day of week |
+| 45-49 | month |
+| 50-57 | year |
+| 58 | date parity |
+
+The time carried by the telegram describes **the minute that is about to begin**. When the second-59 marker arrives, the completed frame is validated and the clock can be aligned to the new minute.
+
+### Why this project is interesting
+
+The hard part is not reading zeroes and ones; it is doing so in a noisy electromagnetic environment. At 77.5 kHz, OLED displays, switching supplies, USB, Wi-Fi, the MCU itself and nearby digital wiring can noticeably degrade reception. v2.5.4 therefore:
+
+1. statistically recovers the dominant **1 Hz** phase;
+2. assigns pulses to time slots instead of blindly trusting RAW edges;
+3. uses DCF77 parity to recover **deterministic erasures**;
+4. completely silences OLED/I2C during acquisition;
+5. powers the receiver down after valid synchronization and keeps time in **HOLDOVER**;
+6. periodically powers the receiver back up to correct local-clock drift.
+
+The result is more than a simple DCF77 bit decoder: it behaves like a compact resilient time receiver that alternates **radio acquisition**, **validation**, **recovery** and **holdover**.
 
 ## Release scope
 
