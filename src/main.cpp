@@ -1,3 +1,22 @@
+/*
+ * DCF77 RC8000 Console v2.5.4
+ * Copyright (c) 2026 Gianpaolo P.
+ *
+ * Licensed under the PolyForm Noncommercial License 1.0.0.
+ * Personal, educational, experimental and noncommercial research use is permitted
+ * under the terms of the license.
+ *
+ * Commercial use, resale, integration into paid products or services, and
+ * pre-installation on hardware offered for sale require a separate written license.
+ *
+ * Required Notice: Copyright © 2026 Gianpaolo P.
+ * Required Notice: DCF77 RC8000 Console is licensed under the PolyForm
+ * Noncommercial License 1.0.0. Commercial use requires a separate written license
+ * from the copyright holder.
+ *
+ * See LICENSE and NOTICE.md in the project repository.
+ */
+
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
